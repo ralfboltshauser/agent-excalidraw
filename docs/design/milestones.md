@@ -172,3 +172,7 @@ Only mark the release ready when the evidence supports it. User acceptance remai
 ## Explicitly outside this release
 
 Mobile/tablet apps, remote/LAN editing, real-time multiuser CRDT collaboration, cloud sync/accounts, in-app LLM chat, arbitrary selective history undo and retained multi-document tabs. Full CLI/optional-MCP functionality is inside the macOS release. Windows/Linux architecture and CI remain in scope for future distribution, with their native installer/signing gates deferred by explicit user direction. Additional architectures/distributions need their own native evidence before being listed as supported.
+
+## Planned follow-up: embedded canvas
+
+The [shared embedded canvas plan](embedded-canvas-plan.md) defines E0–E6 for one optional MCP App viewer across qualified T3 and Claude Desktop routes, preserving CLI fallback and the existing renderer authority. E7 is a separate full-editing design gate. This research does not implement those features or close any outstanding original milestone criterion.
