@@ -1,8 +1,8 @@
 #!/usr/bin/env node
-import { createHash } from 'node:crypto';
-import { createReadStream } from 'node:fs';
-import { mkdir, readFile, stat, writeFile } from 'node:fs/promises';
-import path from 'node:path';
+import { createHash } from "node:crypto";
+import { createReadStream } from "node:fs";
+import { mkdir, readFile, stat, writeFile } from "node:fs/promises";
+import path from "node:path";
 
 const usage = `Generate the checksum manifest consumed by agent-excalidraw install.
 
@@ -26,48 +26,101 @@ only after the separate signing and release-verification gates pass.
 `;
 
 async function main(args) {
-  if (args.includes('--help') || args.includes('-h')) { console.log(usage); return; }
+  if (args.includes("--help") || args.includes("-h")) {
+    console.log(usage);
+    return;
+  }
   let version;
-  let output = path.resolve('release/agent-excalidraw-manifest.json');
+  let output = path.resolve("release/agent-excalidraw-manifest.json");
   const inputs = [];
   const next = (index, option) => {
     const value = args[index];
-    if (!value || value.startsWith('--')) throw new Error(`${option} requires a value. See --help.`);
+    if (!value || value.startsWith("--"))
+      throw new Error(`${option} requires a value. See --help.`);
     return value;
   };
   for (let i = 0; i < args.length; i++) {
     const option = args[i];
-    if (option === '--version') version = next(++i, option).replace(/^v/, '');
-    else if (option === '--output') output = path.resolve(next(++i, option));
-    else if (option === '--asset') {
-      const platform = next(++i, option), arch = next(++i, option), file = next(++i, option);
+    if (option === "--version") version = next(++i, option).replace(/^v/, "");
+    else if (option === "--output") output = path.resolve(next(++i, option));
+    else if (option === "--asset") {
+      const platform = next(++i, option),
+        arch = next(++i, option),
+        file = next(++i, option);
       inputs.push({ platform, arch, file: path.resolve(file) });
     } else throw new Error(`Unknown option ${option}. See --help.`);
   }
-  if (!version) version = JSON.parse(await readFile(new URL('../package.json', import.meta.url), 'utf8')).version;
-  if (typeof version !== 'string' || !/^\d+\.\d+\.\d+(?:-[A-Za-z0-9.-]+)?$/.test(version)) throw new Error('Version must be an explicit semantic release version, for example 0.1.0.');
-  if (!inputs.length) throw new Error('Add at least one --asset PLATFORM ARCH FILE. No manifest was generated.');
-  const formats = { darwin: '.zip', win32: '.exe', linux: '.AppImage' };
-  const identities = new Set(), names = new Set();
+  if (!version)
+    version = JSON.parse(
+      await readFile(new URL("../package.json", import.meta.url), "utf8"),
+    ).version;
+  if (
+    typeof version !== "string" ||
+    !/^\d+\.\d+\.\d+(?:-[A-Za-z0-9.-]+)?$/.test(version)
+  )
+    throw new Error(
+      "Version must be an explicit semantic release version, for example 0.1.0.",
+    );
+  if (!inputs.length)
+    throw new Error(
+      "Add at least one --asset PLATFORM ARCH FILE. No manifest was generated.",
+    );
+  const formats = { darwin: ".zip", win32: ".exe", linux: ".AppImage" };
+  const identities = new Set(),
+    names = new Set();
   const assets = [];
   for (const input of inputs) {
-    if (!Object.hasOwn(formats, input.platform) || !['arm64', 'x64'].includes(input.arch)) throw new Error(`Unsupported target ${input.platform}/${input.arch}.`);
+    if (
+      !Object.hasOwn(formats, input.platform) ||
+      !["arm64", "x64"].includes(input.arch)
+    )
+      throw new Error(`Unsupported target ${input.platform}/${input.arch}.`);
     const identity = `${input.platform}/${input.arch}`;
-    if (identities.has(identity)) throw new Error(`Duplicate install target ${identity}; the installer requires one unambiguous asset.`);
+    if (identities.has(identity))
+      throw new Error(
+        `Duplicate install target ${identity}; the installer requires one unambiguous asset.`,
+      );
     const name = path.basename(input.file);
-    if (!name.endsWith(formats[input.platform])) throw new Error(`${identity} requires a ${formats[input.platform]} asset, received ${name}.`);
-    if (names.has(name)) throw new Error(`Duplicate release asset name ${name}; GitHub release asset names must be unique.`);
-    if ((process.platform === 'win32' ? input.file.toLowerCase() : input.file) === (process.platform === 'win32' ? output.toLowerCase() : output)) throw new Error('Manifest output cannot replace an input installer asset.');
+    if (!name.endsWith(formats[input.platform]))
+      throw new Error(
+        `${identity} requires a ${formats[input.platform]} asset, received ${name}.`,
+      );
+    if (names.has(name))
+      throw new Error(
+        `Duplicate release asset name ${name}; GitHub release asset names must be unique.`,
+      );
+    if (
+      (process.platform === "win32" ? input.file.toLowerCase() : input.file) ===
+      (process.platform === "win32" ? output.toLowerCase() : output)
+    )
+      throw new Error(
+        "Manifest output cannot replace an input installer asset.",
+      );
     const metadata = await stat(input.file);
-    if (!metadata.isFile() || metadata.size === 0) throw new Error(`Asset is not a nonempty regular file: ${input.file}`);
-    const hash = createHash('sha256');
+    if (!metadata.isFile() || metadata.size === 0)
+      throw new Error(`Asset is not a nonempty regular file: ${input.file}`);
+    const hash = createHash("sha256");
     for await (const chunk of createReadStream(input.file)) hash.update(chunk);
-    assets.push({ platform: input.platform, arch: input.arch, name, sha256: hash.digest('hex') });
-    identities.add(identity); names.add(name);
+    assets.push({
+      platform: input.platform,
+      arch: input.arch,
+      name,
+      sha256: hash.digest("hex"),
+    });
+    identities.add(identity);
+    names.add(name);
   }
-  assets.sort((a, b) => a.platform.localeCompare(b.platform) || a.arch.localeCompare(b.arch));
+  assets.sort(
+    (a, b) =>
+      a.platform.localeCompare(b.platform) || a.arch.localeCompare(b.arch),
+  );
   await mkdir(path.dirname(output), { recursive: true });
-  await writeFile(output, JSON.stringify({ version, assets }, null, 2) + '\n');
-  console.log(`Wrote ${output} with ${assets.length} checksummed install asset${assets.length === 1 ? '' : 's'}. Signing and release acceptance remain separate checks.`);
+  await writeFile(output, JSON.stringify({ version, assets }, null, 2) + "\n");
+  console.log(
+    `Wrote ${output} with ${assets.length} checksummed install asset${assets.length === 1 ? "" : "s"}. Signing and release acceptance remain separate checks.`,
+  );
 }
-main(process.argv.slice(2)).catch(error => { console.error(`Manifest error: ${error.message}`); process.exitCode = 1; });
+main(process.argv.slice(2)).catch((error) => {
+  console.error(`Manifest error: ${error.message}`);
+  process.exitCode = 1;
+});

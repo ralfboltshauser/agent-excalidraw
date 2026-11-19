@@ -43,3 +43,15 @@ A clean build (143 bundled library notices), full typecheck and all nine real El
 Actual282MB macOS arm64 package passed the same nine real journeys. ASAR inspection confirmed zero node_modules entries, the verified OFL fallback hash, and retained dependency/font notices. The npm CLI tarball is679KB compressed and installs as one dependency-free package (~3.7MB). An independent consumer completed the full diagram loop using only installed public commands/guide; isolated skill-root setup was undiscoverable and will be corrected before M5 acceptance.
 
 The all-OS run now reaches native tests after the lock correction. Windows passed7/9; fixture short-path canonicalization and hard-crash process-tree cleanup need native recheck. Ubuntu's official Electron sandbox helper requires its standard root owner and4755 mode. Configure that helper in ephemeral CI and retain sandboxing, rather than passing --no-sandbox. Native installer/public trust checks remain open.
+
+## Release scope update
+
+Ralf explicitly chose macOS for the first release because Windows publisher signing is not available yet. Keep Windows/Linux adapters, tests and CI; defer their support/download claims and distribution gates. Mac signing identity is available; existing notarization configuration is being discovered locally as requested, without asking Ralf to identify profile details again.
+
+## Expanded daily workflows and final verification increment
+
+Added renderer-synchronous background/shape batches with exact readback, native close/unload/quit, read-only copies, private paginated agent library queries,10k-row windowing, recovery metadata, safe shared-source skill ownership across homes, full quick-switch keyboard navigation, Locate, folder new/refresh/removal, actual Trash state reset, owned integration disconnect, and explicit preview cleanup. Exports now use a real captured preview, PNG resolution controls and exact preview-token bytes; later agent changes do not alter an approved export.
+
+Source verification reached50 module cases and23 real Electron cases. Screenshot review corrected unrelated missing-reference actions, recovery grammar and unopened dates. The installed-theme bootstrap avoids a white first-paint flash. Public docs and synthetic screenshots were reviewed; source formatting was normalized for maintainability. Dependency updates remove all reported advisories in the current lock, and a clean temporary-directory lock generation preserves optional WASM peers needed by clean CI.
+
+Signing is available. A synthetic signed Xcode archive export was actually attempted using the existing account; it failed account login. No profile or private key was found in the standard local configuration checked. Notarization remains an explicit external authentication gate; the local signed package, offline audit, performance run, final consumer trials and public release acceptance are separate evidence.

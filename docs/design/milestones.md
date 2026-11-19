@@ -1,6 +1,6 @@
 # Agent Excalidraw — milestone implementation and verification plan
 
-2026-11-19. Product scope: macOS, Windows and Linux; native-feeling desktop editor, standard local files, full CLI, optional MCP, minimal shell. Detailed UX: [product-and-flows.md](product-and-flows.md). Technical baseline: [../excalidraw-local-plan.md](../excalidraw-local-plan.md).
+2026-11-19. Release scope updated by Ralf: macOS first; Windows and Linux remain future release targets. Architecture and native CI stay cross-platform. Product scope: native-feeling desktop editor, standard local files, full CLI, optional MCP, minimal shell. Detailed UX: [product-and-flows.md](product-and-flows.md). Technical baseline: [architecture](../architecture.md).
 
 These are outcome gates, not a list of components completed. No implementation milestone has passed yet. M0 becomes ready for product review when the design artifacts and prototype are available; it is not evidence that native files, installation or agent operations work.
 
@@ -34,9 +34,9 @@ An architecture/engine failure at M1 blocks further product build-out. Visual fe
 
 **Does not prove:** any Excalidraw integration, OS installation, real files or connected agent. The current interactive artifact is a design prototype, not the app.
 
-## M1 — Prove the editor boundary on all three OS families
+## M1 — Prove the editor boundary on the Mac release architectures
 
-**Deliver:** a minimal real Electron/editor build with the proposed host/file-service versus renderer/scene-controller split. Native host adapter exists for macOS/Linux sockets and Windows named pipe. At least one real editor instance can create/read/update/render a synthetic scene. Pin actual editor/runtime versions and declare the tested support matrix.
+**Deliver:** a minimal real Electron/editor build with the proposed host/file-service versus renderer/scene-controller split. Native host adapters retain macOS/Linux sockets and Windows named pipe for future releases. At least one real editor instance can create/read/update/render a synthetic scene. Pin actual editor/runtime versions and declare the tested support matrix.
 
 **Your check:**
 
@@ -48,7 +48,7 @@ An architecture/engine failure at M1 blocks further product build-out. Visual fe
 
 **Required engineering evidence:** deliberately delayed main notifications; final revision validation in the renderer; text/IME, crop/line and delayed image paste/drop; no-op command; back-to-back agent batches; immutable exact-revision render; cancellation and lost reply without blind replay. A simple JS-thread/mutex argument does not count as proof. Validate unknown-element preservation/refusal before permitting ordinary saves.
 
-**Cross-platform gate:** compile/package and launch on actual supported macOS, Windows and Linux environments. Native test logs identify OS/runtime. If only one platform was exercised, report the other lanes pending and keep this gate open.
+**Current release gate:** compile/package and launch on actual supported macOS architectures. Windows/Linux are future release lanes; preserve their CI results and resolve failures before declaring support for those releases. Native test logs identify OS/runtime. If only one platform was exercised, report the other lanes pending and keep this gate open.
 
 **Pass:** zero observed lost human edits in the declared scenarios; one tested native undo boundary per allowed batch; no wrong-document application; no indefinite busy state. Decide whether stable SDK suffices before adding product scope. Do not hide integration failure with a second independently writable server scene.
 
@@ -138,9 +138,9 @@ An architecture/engine failure at M1 blocks further product build-out. Visual fe
 
 ## M7 — Cross-platform install, offline use and lifecycle
 
-**Deliver:** F01/F29/F30 and the release matrix: signed/notarized Mac distributions; signed per-user Windows installer; tested Linux package; app associations/icons; first-run setup; explicit updates, rollback and uninstall. Packaged assets and transport permissions are audited/tested on each platform.
+**Deliver:** F01/F29/F30 and the release matrix: signed/notarized Mac distributions; future signed per-user Windows installer and tested Linux package; app associations/icons; first-run setup; explicit updates, rollback and uninstall. Packaged assets and transport permissions are audited/tested on each platform.
 
-**Your check, repeated on each supported OS:**
+**Your check, repeated on each currently released OS/architecture:**
 
 1. Clean account → official download → native installation → first drawing, without terminal/toolchain for manual use.
 2. Disconnect internet, clear app caches, relaunch, draw, save and export fonts/images.
@@ -163,7 +163,7 @@ An architecture/engine failure at M1 blocks further product build-out. Visual fe
 3. Use your agent through CLI + skill to improve it and save.
 4. Test optional MCP separately.
 5. Recover a synthetic unsaved drawing, resolve one external-change conflict, and export a noneditable image.
-6. Check Windows and Linux evidence rather than extrapolating your Mac experience.
+6. Confirm the public release declares macOS only; review Windows/Linux progress separately, without advertising unverified downloads.
 
 **Release gate:** all F01–F32 have implemented evidence or an explicitly accepted scope change; zero silent data-loss/wrong-target bugs; zero blocked core workflow; runtime/platform/editor versions declared; known limitations shown where they affect users. Current excalidraw.com-format compatibility is tested with synthetic fixtures and unsupported-type protection, not inferred from a stable package number. No promise of universal future-format compatibility or full offline agents using cloud models.
 
@@ -171,4 +171,4 @@ Only mark the release ready when the evidence supports it. User acceptance remai
 
 ## Explicitly outside this release
 
-Mobile/tablet apps, remote/LAN editing, real-time multiuser CRDT collaboration, cloud sync/accounts, in-app LLM chat, arbitrary selective history undo and retained multi-document tabs. Cross-platform desktop support and full CLI/optional-MCP functionality are **inside** the release. Additional architectures/distributions need their own native evidence before being listed as supported.
+Mobile/tablet apps, remote/LAN editing, real-time multiuser CRDT collaboration, cloud sync/accounts, in-app LLM chat, arbitrary selective history undo and retained multi-document tabs. Full CLI/optional-MCP functionality is inside the macOS release. Windows/Linux architecture and CI remain in scope for future distribution, with their native installer/signing gates deferred by explicit user direction. Additional architectures/distributions need their own native evidence before being listed as supported.

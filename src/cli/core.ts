@@ -1,10 +1,19 @@
-export const coreInstructions=`# Agent Excalidraw — installed command guide
+export const coreInstructions = `# Agent Excalidraw — installed command guide
 
 Use the CLI directly; MCP registration is optional. The desktop app opens on the first drawing command. Run agent-excalidraw doctor if launch fails. Installation and explicit updates need internet; drawing works offline.
 
+## Skill discovery and safe installation
+
+If agent-excalidraw is not on PATH, first check the desktop app's local launcher: ~/.local/bin/agent-excalidraw on macOS/Linux, or %LOCALAPPDATA%\\agent-excalidraw\\bin\\agent-excalidraw.cmd on Windows. Run skills get core through that full path, and use the resolved command throughout the task. This avoids reinstalling an already working app merely because a terminal's PATH is stale.
+
+skills install --dry-run --json previews the canonical source and exact selected host links. Default roots honor AGENTS_HOME, CODEX_HOME and CLAUDE_CONFIG_DIR, with ~/.agents, ~/.codex and ~/.claude as fallbacks. For an isolated trial, use:
+agent-excalidraw skills install --home /tmp/excalidraw-trial --data-dir /tmp/excalidraw-trial/app-data --hosts codex,claude --dry-run --json
+
+--home overrides inherited host-root settings for every selected agent. --data-dir sets the canonical source directory; AGENT_EXCALIDRAW_DATA_DIR supplies its default when set. Remove --dry-run to install; repeat the same home/data-dir when uninstalling. Installation preserves unrelated existing skills. A copied or installed skill is not proof of a real agent call.
+
 ## Choose the file
 
-Honor an explicit path. For an existing drawing, use list --json and open --path <absolute path>; compare full paths before choosing among equal names. For a new idea use new --title <purpose> --project-dir <current project> --json. This chooses a collision-free file under the configured drawing root, outside the repository by default. A request merely to launch the workspace uses launch, not new.
+Honor an explicit path. For an existing drawing, use list --query <name or path> --json and open --path <absolute path>; compare full paths before choosing among equal names. Library results are paginated: follow nextOffset until null when you need all matches. status returns a count, not every private filename. For a new idea use new --title <purpose> --project-dir <current project> --json. This chooses a collision-free file under the configured drawing root, outside the repository by default. A request merely to launch the workspace uses launch, not new. Leave the app open after drawing unless asked to close it. The quit command closes only after saved work; unsaved agent shutdown is refused.
 
 ## Edit the live document
 
@@ -27,6 +36,8 @@ Example apply input (after obtaining live preconditions):
 Style and geometry fields go directly on each operation, for example strokeColor, backgroundColor, fillStyle, roughness, opacity, roundness and x/y/width/height. A nested style object is rejected. For sharp corners use roundness:null; rounded boxes use roundness:{"type":3}. Font IDs: 1 Virgil, 2 Helvetica, 3 Cascadia, 5 Excalifont, 6 Nunito, 7 Lilita One, 8 Comic Shanns, 9 Liberation Sans (Agent Sans fallback).
 
 Update uses {"op":"update","id":"stable ID","x":120,"label":{"text":"Revised","fontFamily":5,"fontSize":20}}; delete uses {"op":"delete","id":"stable ID"}; group uses {"op":"group","ids":["id1","id2"]}. Refs exist only inside the submitted batch: a later arrow from/to can use them. The receipt returns created entries with ref and stable id; use those stable IDs in subsequent batches. Type-specific and styling fields are documented in apply --help and schema.
+
+Canvas background is also a revision-checked operation: {"op":"canvas","viewBackgroundColor":"#ffffff"}. It can share one batch with shapes and one native Undo step; shell theme remains separate.
 
 ## Preserve human work
 

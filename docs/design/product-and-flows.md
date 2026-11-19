@@ -14,13 +14,13 @@ One signature: **the drawing title is a small paper label** with a restrained in
 
 ### Visual system
 
-* Light shell: fog `#F7F8FA`; paper `#FFFFFF`; ink `#1B1D27`; secondary text `#696B7A`; quiet line `#E6E8EE`; Excalidraw violet `#6965DB`.
-* Dark shell: graphite `#17181E`; elevated surface `#22232C`; canvas `#1E1F26`; readable ink `#ECECF1`; muted text `#A0A2B0`; violet `#A29DFA`. These are proposed seed tokens, not a contrast-audited finished theme.
-* Semantic tokens are authoritative; verify foreground/background combinations before shipping. The shell follows system appearance by default. Shell appearance never changes a file's persisted canvas background silently.
-* UI: bundled neutral sans or an OS-matched system stack, 13–14px ordinary UI, 12px secondary metadata, 16px field text. Canvas: Excalidraw's bundled font families. Handwriting belongs to drawings and one restrained welcome phrase, not long instructions or error text.
-* Use a 4px spacing base; 8–12px control gaps; 16–24px section gaps. Compact controls have at least 32px desktop hit areas, increased to 44px on coarse pointers. Real focus rings remain visible.
-* One primary action per surface. Error messages replace vague failure with a next step. Persistent save failures never disappear in a toast.
-* No ambient motion, loading theatrics or animated diagram playback by default. Canvas input never waits for shell decoration. Theme changes are immediate. Any later motion must preserve reduced-motion behavior.
+- Light shell: fog `#F7F8FA`; paper `#FFFFFF`; ink `#1B1D27`; secondary text `#696B7A`; quiet line `#E6E8EE`; Excalidraw violet `#6965DB`.
+- Dark shell: graphite `#17181E`; elevated surface `#22232C`; canvas `#1E1F26`; readable ink `#ECECF1`; muted text `#A0A2B0`; violet `#A29DFA`. These are proposed seed tokens, not a contrast-audited finished theme.
+- Semantic tokens are authoritative; verify foreground/background combinations before shipping. The shell follows system appearance by default. Shell appearance never changes a file's persisted canvas background silently.
+- UI: bundled neutral sans or an OS-matched system stack, 13–14px ordinary UI, 12px secondary metadata, 16px field text. Canvas: Excalidraw's bundled font families. Handwriting belongs to drawings and one restrained welcome phrase, not long instructions or error text.
+- Use a 4px spacing base; 8–12px control gaps; 16–24px section gaps. Compact controls have at least 32px desktop hit areas, increased to 44px on coarse pointers. Real focus rings remain visible.
+- One primary action per surface. Error messages replace vague failure with a next step. Persistent save failures never disappear in a toast.
+- No ambient motion, loading theatrics or animated diagram playback by default. Canvas input never waits for shell decoration. Theme changes are immediate. Any later motion must preserve reduced-motion behavior.
 
 ### The shell
 
@@ -35,66 +35,66 @@ The library can be shown while the active editor remains mounted. Returning to i
 
 ## Platform contract
 
-The public product supports **macOS, Windows and Linux**, with the same core document and agent workflows. A release manifest declares tested OS versions, distributions, architectures and installer variants. Initial proposed architectures: macOS arm64/x64, Windows x64, Linux x64. Windows/Linux ARM builds are supported only when their native acceptance evidence exists; do not silently label emulation as native support.
+The first public release targets **macOS**, by Ralf’s direction during implementation. The application architecture and native CI target **macOS, Windows and Linux** with the same core document and agent workflows; Windows/Linux distribution and support claims are deferred until their own release gates pass. A release manifest declares tested OS versions, distributions, architectures and installer variants. Initial proposed architectures: macOS arm64/x64, Windows x64, Linux x64. Windows/Linux ARM builds are supported only when their native acceptance evidence exists; do not silently label emulation as native support.
 
-* macOS: signed/notarized `.dmg`, move to Applications, native app/menu conventions, Cmd shortcuts, Finder reveal.
-* Windows: signed per-user `.exe` installer, Start menu entry, Explorer reveal, Ctrl shortcuts; no admin requirement for ordinary app install. PATH/terminal changes are optional, user-scoped and explained.
-* Linux: tested `.deb` for the declared Ubuntu LTS baseline; optional AppImage only with an equally usable documented launch path. Respect window-manager chrome, file-manager reveal and XDG paths. Do not claim support for every distribution because an AppImage exists.
-* GUI installation bundles the editor/runtime. Manual drawing requires no Node, terminal, Docker, developer toolchain or MCP configuration.
-* The agent CLI is an npm package initially; a supported Node prerequisite is acceptable for coding-agent users. Node is not quietly required by the manual desktop path. Missing prerequisites get one actionable instruction.
-* Local IPC uses Unix sockets on macOS/Linux and a user-restricted named pipe on Windows. Verify OS permissions/ACLs; do not substitute an unauthenticated TCP listener.
-* OS-specific file operations, shortcuts, launch, credentials, trash and permissions live behind platform adapters. Interface text uses “Show in Finder”, “Show in Explorer” or “Show in file manager”.
+- macOS: signed/notarized `.dmg`, move to Applications, native app/menu conventions, Cmd shortcuts, Finder reveal.
+- Windows: signed per-user `.exe` installer, Start menu entry, Explorer reveal, Ctrl shortcuts; no admin requirement for ordinary app install. PATH/terminal changes are optional, user-scoped and explained.
+- Linux: tested `.deb` for the declared Ubuntu LTS baseline; optional AppImage only with an equally usable documented launch path. Respect window-manager chrome, file-manager reveal and XDG paths. Do not claim support for every distribution because an AppImage exists.
+- GUI installation bundles the editor/runtime. Manual drawing requires no Node, terminal, Docker, developer toolchain or MCP configuration.
+- The agent CLI is an npm package initially; a supported Node prerequisite is acceptable for coding-agent users. Node is not quietly required by the manual desktop path. Missing prerequisites get one actionable instruction.
+- Local IPC uses Unix sockets on macOS/Linux and a user-restricted named pipe on Windows. Verify OS permissions/ACLs; do not substitute an unauthenticated TCP listener.
+- OS-specific file operations, shortcuts, launch, credentials, trash and permissions live behind platform adapters. Interface text uses “Show in Finder”, “Show in Explorer” or “Show in file manager”.
 
 Default drawing location is `<home>/Excalidraw`, including `%USERPROFILE%\Excalidraw` on Windows. Configuration/recovery/cache locations use the platform's application-data conventions, not hand-coded Mac paths everywhere. The default avoids intentionally choosing Documents/Desktop/Git folders; it cannot guarantee no external backup/sync software.
 
 ## Product vocabulary and invariants
 
-* **Drawing** means a `.excalidraw` document. **Folder** means an actual filesystem folder. **Library** is the app's index of known drawings, not storage or backup. **Shape library** is Excalidraw's reusable shapes, a separate concept.
-* **New** creates a new file. **Open** uses an existing file in place. **Duplicate** creates a separate document/identity. **Move** changes the current file location. **Export** creates another artifact without changing the drawing's save target.
-* “Saved” means the current acknowledged document revision was written successfully. “Recovery available” means a private recovery snapshot exists; it is not a saved-file claim.
-* “Tool installed” means the CLI was verified. “Skill installed” means discovery files were verified. “Last used” means a real successful agent call occurred. Copying a command does not make an agent connected.
-* An agent's drawing edits use the same live editor. The UI never silently changes the document the agent is bound to when the user changes focus.
-* New/open, failed save, disconnected folder, missing file and unknown format never cause silent overwrite, silent relocation, or a blank replacement.
-* Local file storage is separate from model privacy. Copy: **“Agents run in your existing tools. Content they read is handled by that tool's provider.”** Never label an agent-assisted workflow “never leaves this device” unless a genuinely local model/host makes that true.
+- **Drawing** means a `.excalidraw` document. **Folder** means an actual filesystem folder. **Library** is the app's index of known drawings, not storage or backup. **Shape library** is Excalidraw's reusable shapes, a separate concept.
+- **New** creates a new file. **Open** uses an existing file in place. **Duplicate** creates a separate document/identity. **Move** changes the current file location. **Export** creates another artifact without changing the drawing's save target.
+- “Saved” means the current acknowledged document revision was written successfully. “Recovery available” means a private recovery snapshot exists; it is not a saved-file claim.
+- “Tool installed” means the CLI was verified. “Skill installed” means discovery files were verified. “Last used” means a real successful agent call occurred. Copying a command does not make an agent connected.
+- An agent's drawing edits use the same live editor. The UI never silently changes the document the agent is bound to when the user changes focus.
+- New/open, failed save, disconnected folder, missing file and unknown format never cause silent overwrite, silent relocation, or a blank replacement.
+- Local file storage is separate from model privacy. Copy: **“Agents run in your existing tools. Content they read is handled by that tool's provider.”** Never label an agent-assisted workflow “never leaves this device” unless a genuinely local model/host makes that true.
 
 ## Complete flow inventory
 
 Every flow below has a trigger, destination, failure/escape and acceptance result. The milestone column identifies the first implementation gate that must demonstrate it; later platform/release gates repeat the real paths.
 
-| ID | Journey | First gate |
-|---|---|---|
-| F01 | Install and launch the desktop app | M1 alpha, M7 public |
-| F02 | Start from a skill/CLI before the app exists | M5 |
-| F03 | First launch and first useful action | M3 |
-| F04 | Return after normal quit | M3 |
-| F05 | Create a drawing manually | M2–M3 |
-| F06 | Create a drawing through an agent | M4 |
-| F07 | Rename, save and see the real location | M2–M3 |
-| F08 | Reopen a recent/pinned drawing | M3 |
-| F09 | Open through picker, file association or drop | M2–M3 |
-| F10 | Search and switch drawings | M3 |
-| F11 | Add/remove a folder in the library | M3 |
-| F12 | Star, remove from recents and forget references | M3 |
-| F13 | Move/rename a live document | M3 |
-| F14 | Duplicate and Save As | M3 |
-| F15 | Move a drawing to OS Trash/Recycle Bin | M3 |
-| F16 | Export image, SVG or editable artifact | M6 |
-| F17 | Set up the CLI and skill | M5 |
-| F18 | Add optional MCP | M5 |
-| F19 | Human and agent co-edit | M1 proof, M4 product |
-| F20 | Stop an agent and revert a batch | M4 |
-| F21 | Close, switch or quit with work in progress | M2 |
-| F22 | Recover after a crash | M2 |
-| F23 | External file change/conflict | M2 |
-| F24 | Read-only, corrupt or newer-format document | M2 |
-| F25 | Missing file, offline drive or moved folder | M3 |
-| F26 | Save fails: permission, disk space or unavailable path | M2 |
-| F27 | Learn tools, shortcuts and commands in context | M3, M6 |
-| F28 | Settings, keyboard, appearance and accessibility | M6 |
-| F29 | Update, mismatch and rollback | M7 |
-| F30 | Uninstall, disconnect agents and clear local artifacts | M7 |
-| F31 | Large library/document, offline and slow operations | M1 baseline, M6–M7 |
-| F32 | Unsupported agent host or different execution machine | M5 |
+| ID  | Journey                                                | First gate           |
+| --- | ------------------------------------------------------ | -------------------- |
+| F01 | Install and launch the desktop app                     | M1 alpha, M7 public  |
+| F02 | Start from a skill/CLI before the app exists           | M5                   |
+| F03 | First launch and first useful action                   | M3                   |
+| F04 | Return after normal quit                               | M3                   |
+| F05 | Create a drawing manually                              | M2–M3                |
+| F06 | Create a drawing through an agent                      | M4                   |
+| F07 | Rename, save and see the real location                 | M2–M3                |
+| F08 | Reopen a recent/pinned drawing                         | M3                   |
+| F09 | Open through picker, file association or drop          | M2–M3                |
+| F10 | Search and switch drawings                             | M3                   |
+| F11 | Add/remove a folder in the library                     | M3                   |
+| F12 | Star, remove from recents and forget references        | M3                   |
+| F13 | Move/rename a live document                            | M3                   |
+| F14 | Duplicate and Save As                                  | M3                   |
+| F15 | Move a drawing to OS Trash/Recycle Bin                 | M3                   |
+| F16 | Export image, SVG or editable artifact                 | M6                   |
+| F17 | Set up the CLI and skill                               | M5                   |
+| F18 | Add optional MCP                                       | M5                   |
+| F19 | Human and agent co-edit                                | M1 proof, M4 product |
+| F20 | Stop an agent and revert a batch                       | M4                   |
+| F21 | Close, switch or quit with work in progress            | M2                   |
+| F22 | Recover after a crash                                  | M2                   |
+| F23 | External file change/conflict                          | M2                   |
+| F24 | Read-only, corrupt or newer-format document            | M2                   |
+| F25 | Missing file, offline drive or moved folder            | M3                   |
+| F26 | Save fails: permission, disk space or unavailable path | M2                   |
+| F27 | Learn tools, shortcuts and commands in context         | M3, M6               |
+| F28 | Settings, keyboard, appearance and accessibility       | M6                   |
+| F29 | Update, mismatch and rollback                          | M7                   |
+| F30 | Uninstall, disconnect agents and clear local artifacts | M7                   |
+| F31 | Large library/document, offline and slow operations    | M1 baseline, M6–M7   |
+| F32 | Unsupported agent host or different execution machine  | M5                   |
 
 ## Installation and first value
 
@@ -172,7 +172,7 @@ Arrow keys change result focus; Enter opens; Escape closes and restores focus. A
 
 Library → Add folder… → native picker → show the chosen path and initial scan state. Index only that root under documented recursion/symlink rules. Existing entries become navigable progressively; no blank blocking spinner for the whole app. Exclude app caches, hidden build folders and symlink escapes by default. A folder that goes offline displays one root-level status, not hundreds of scary per-file toasts.
 
-Remove folder… explains **“Remove this folder from the library? The files stay where they are.”** Remove its indexed references; don't delete disk data. Deal with an active dirty document through F21 before losing its navigation entry. Re-adding a folder is safe and does not duplicate canonical file entries.
+Remove folder… explains **“Remove this folder from the library? The files stay where they are.”** Remove its descendant library references, except the currently open drawing and files still covered by another registered root. The active drawing keeps its navigation entry, identity, path, dirty state and recovery; removing a folder never saves or closes it. Previously known descendant entries outside those exceptions are forgotten, including their library-only star metadata. Re-adding the folder is safe and does not duplicate retained canonical entries. No source files are deleted.
 
 ### F12 — Star, recents and reference removal
 
@@ -234,13 +234,13 @@ Native Undo remains available under the tested batch contract. “Revert last ag
 
 ### F27 — Teach at the moment of need
 
-* First canvas: select, pan, save; dismiss on action, retain in Help.
-* First save: status shows location; path popover teaches Reveal once, not a modal.
-* First agent setup: one real prompt and a truthful provider boundary; no generic video tour.
-* First supported conflict/recovery: explain which copy is which in the resolution UI.
-* Help menu: Getting started, Drawing shortcuts, Agent guide, File & recovery behavior, Diagnostics. All essential guides ship locally and match the installed version.
-* Tooltips show action names and real OS shortcuts. Essential actions have menus/buttons and keyboard paths, not only hidden gestures.
-* Quick switch results teach commands while executing them. No achievement badges or persistent checklist occupying the canvas.
+- First canvas: select, pan, save; dismiss on action, retain in Help.
+- First save: status shows location; path popover teaches Reveal once, not a modal.
+- First agent setup: one real prompt and a truthful provider boundary; no generic video tour.
+- First supported conflict/recovery: explain which copy is which in the resolution UI.
+- Help menu: Getting started, Drawing shortcuts, Agent guide, File & recovery behavior, Diagnostics. All essential guides ship locally and match the installed version.
+- Tooltips show action names and real OS shortcuts. Essential actions have menus/buttons and keyboard paths, not only hidden gestures.
+- Quick switch results teach commands while executing them. No achievement badges or persistent checklist occupying the canvas.
 
 ## Safety, interruptions and recovery
 
@@ -314,12 +314,12 @@ Mod+N New; Mod+O Open; Mod+S Save; Mod+Shift+S Save As; Mod+P quick switch; prop
 
 ## Design acceptance principles
 
-* A new person can create/open without understanding agents, runtimes or MCP.
-* A coding agent can create/edit/render/save without registering MCP or driving UI coordinates.
-* Every drawing can answer “What file is this?” in one click.
-* Primary create/open paths are one action from Library; ordinary Save is zero dialogs.
-* Every displayed success is tied to its actual effect. Error and recovery states remain useful with no internet.
-* The visual shell is minimal, but errors and essential actions never disappear into hover-only affordances.
+- A new person can create/open without understanding agents, runtimes or MCP.
+- A coding agent can create/edit/render/save without registering MCP or driving UI coordinates.
+- Every drawing can answer “What file is this?” in one click.
+- Primary create/open paths are one action from Library; ordinary Save is zero dialogs.
+- Every displayed success is tied to its actual effect. Error and recovery states remain useful with no internet.
+- The visual shell is minimal, but errors and essential actions never disappear into hover-only affordances.
 
 ## Inspiration and implementation references
 
