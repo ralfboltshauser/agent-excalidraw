@@ -32,13 +32,31 @@ function result(reply:Reply):any{
 function errorCode(reply:Reply):string|undefined{return reply.ok?undefined:reply.error.code}
 function live(elements:any[]){return elements.filter(element=>!element.isDeleted)}
 
+async function crashOwnedApplication(application:ElectronApplication){
+  const child=application.process();
+  if(child.exitCode!==null||child.signalCode!==null)return;
+  const exited=once(child,'exit');
+  // Terminating just electron.exe can leave Chromium descendants holding the
+  // Windows process-singleton resources. Kill only this fixture's owned tree.
+  if(process.platform==='win32'){
+    await execute('taskkill',['/PID',String(child.pid),'/T','/F'],{windowsHide:true,timeout:15_000});
+  }else{
+    child.kill('SIGKILL');
+  }
+  await exited;
+}
+
 const test=base.extend<{workspace:Workspace}>({
   workspace:async({},use,testInfo)=>{
     // Short Unix paths avoid the macOS sockaddr_un pathname limit. All source
     // drawings and app metadata stay inside this owned temporary test home.
-    const root=await mkdtemp(path.join(process.platform==='darwin'?'/tmp':tmpdir(),'ae-e2e-'));
-    const dataDirectory=path.join(root,'data'),drawingsDirectory=path.join(root,'drawings');
-    await mkdir(drawingsDirectory,{recursive:true});
+    const temporaryRoot=await mkdtemp(path.join(process.platform==='darwin'?'/tmp':tmpdir(),'ae-e2e-'));
+    await Promise.all([mkdir(path.join(temporaryRoot,'data'),{recursive:true}),mkdir(path.join(temporaryRoot,'drawings'),{recursive:true})]);
+    // Windows TEMP may contain an 8.3 alias (RUNNER~1). Compare/display the same
+    // canonical host paths returned by the actual file service, on every OS.
+    const root=await realpath(temporaryRoot);
+    const dataDirectory=await realpath(path.join(root,'data'));
+    const drawingsDirectory=await realpath(path.join(root,'drawings'));
     const environment:Record<string,string>={};
     for(const [key,value] of Object.entries(process.env))if(value!==undefined&&!['ELECTRON_RUN_AS_NODE','NODE_OPTIONS'].includes(key))environment[key]=value;
     environment.AGENT_EXCALIDRAW_DATA_DIR=dataDirectory;
@@ -60,7 +78,7 @@ const test=base.extend<{workspace:Workspace}>({
       const configured=await page.evaluate(async folder=>window.agentExcalidraw.invoke({command:'settings',args:{defaultFolder:folder,theme:'light'}}),drawingsDirectory);
       result(configured);
     }
-    try{await launch()}catch(error){if(current)await current.close().catch(()=>current.process().kill('SIGKILL'));throw error}
+    try{await launch()}catch(error){if(current)await current.close().catch(()=>crashOwnedApplication(current));throw error}
     const workspace:Workspace={
       get application(){return current},get page(){return page},root,dataDirectory,drawingsDirectory,
       async invoke(request){return page.evaluate(request=>window.agentExcalidraw.invoke(request),request)},
@@ -78,10 +96,7 @@ const test=base.extend<{workspace:Workspace}>({
         }
       },
       async restartAfterCrash(){
-        const process=current.process();
-        const exited=once(process,'exit');
-        process.kill('SIGKILL');
-        await exited;
+        await crashOwnedApplication(current);
         await launch();
       },
       async screenshot(name){
@@ -100,7 +115,7 @@ const test=base.extend<{workspace:Workspace}>({
           if(!saved.ok)await workspace.invoke({command:'save-as',args:{path:path.join(root,`teardown-${randomUUID()}.excalidraw`)}});
         }
       }catch(error){processLogs.push(`TEARDOWN SAVE: ${String(error)}\n`)}
-      try{await Promise.race([current.close(),new Promise((_,reject)=>{const timeout=setTimeout(()=>reject(new Error('Native test app did not close after saving.')),5000);timeout.unref()})])}catch(error){processLogs.push(`TEARDOWN CLOSE: ${String(error)}\n`);current.process().kill('SIGKILL')}
+      try{await Promise.race([current.close(),new Promise((_,reject)=>{const timeout=setTimeout(()=>reject(new Error('Native test app did not close after saving.')),5000);timeout.unref()})])}catch(error){processLogs.push(`TEARDOWN CLOSE: ${String(error)}\n`);await crashOwnedApplication(current).catch(error=>processLogs.push(`TEARDOWN KILL: ${String(error)}\n`))}
       await testInfo.attach('electron-process.log',{body:Buffer.from(processLogs.join('')),contentType:'text/plain'});
       await testInfo.attach('test-home.txt',{body:Buffer.from(root),contentType:'text/plain'});
       // Keep the fixture on failure for diagnosis and never delete source files

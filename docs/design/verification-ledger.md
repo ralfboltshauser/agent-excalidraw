@@ -1,30 +1,35 @@
 # Verification ledger
 
-2026-11-19. Design artifacts exist. No application build, native installer or real agent operation has been verified in this design pass.
+Updated 2026-11-19. Results below describe observed builds and fixtures, not universal guarantees or user acceptance. Public source: https://github.com/ralfboltshauser/agent-excalidraw.
 
-| Gate | Status | Evidence still required |
+## Current evidence
+
+- macOS arm64: typecheck, 25 real file/CLI tests and nine real Electron journeys passed. The same nine journeys passed against the actual packaged application.
+- Actual screenshots were inspected in light/dark mode: welcome, library, editor, file/location, settings, agents, help, search, export, errors and recovery.
+- Independent consumer installed the npm tarball in an empty directory: one package, no transitive dependencies, 3.7 MB installed. It created/refined/viewed/saved/reopened a diagram and exported verified transparent PNG/SVG through CLI only. [Report](../verification/consumer-trial.md).
+- Package archive: 282 MB installed app; zero node_modules entries; Agent Sans fallback checksum matches the verified OFL derivative; software/font notices are present. This is not a notarized-download claim.
+- First native CI install failed on missing optional peer lock entries. Clean regenerated lock passes npm10 validation. Next run reached actual Windows/Linux native tests: Windows7/9 passed, with canonical-path and crash-tree test failures being corrected; Linux required the official sandbox helper's correct owner/mode. Native rerun is pending. A configured runner is not a pass.
+
+## Milestone status
+
+| Gate | Observed | Still required before acceptance |
 |---|---|---|
-| M0 Product design | Ready for user review; not accepted | User walkthrough and recorded design corrections |
-| M1 Editor/platform proof | Not started | Real SDK/concurrency/history checks and native launch on all supported OS families |
-| M2 Files/recovery | Not started | Actual files, failures, reopen, conflict and recovery evidence |
-| M3 Daily manual UX | Not started | Native create/open/library/file-management/keyboard walkthrough |
-| M4 CLI agent workflow | Not started | Full real agent loop without MCP; receipts and artifacts |
-| M5 Setup/MCP | Not started | Clean-home installs, discovery links, actual calls and adapter parity |
-| M6 Quality/performance | Not started | Visual/a11y/export audits and measured fixtures on declared hardware |
-| M7 Platform lifecycle | Not started | Signed installers, cold-cache offline, updates and uninstall on actual OSes |
-| M8 Release candidate | Not started | Public distribution/documentation evidence and user acceptance |
+| M0 Product design | Implementation authorized against32flows and visual direction | User visual acceptance remains distinct |
+| M1 Editor/platform proof | Live SDK, stale checks, native batch Undo/Redo, human gestures, pending-cancel and stale-load refusal pass on Mac source/package | Finish native all-OS lanes; remaining IME/crop/import edge coverage |
+| M2 Files/recovery | Real bytes/reopen, PNG resources, source conflicts, crash recovery, read-only refusal, deleted-content filtering and publication-uncertainty tests | Complete remaining slow/failing-write/native-close cases and platform filesystem evidence |
+| M3 Daily manual UX | Core library/create/open/rename/star/search/settings screens exercised and inspected | Missing/locate, native association, physical shortcut and lifecycle checks; remaining file-operation UX |
+| M4 CLI agent workflow | Independent CLI design loop, stable IDs, epoch refusal; real co-editing and Stop verified | Remaining command/scene settings coverage and broader agent-quality trials |
+| M5 Setup/MCP | Standalone bundled CLI/MCP initialization and parity; safe owned-link tests | Fix discovered skill-root guidance; actual packaged launcher and setup retry; clean release bootstrap |
+| M6 Quality/performance | Nine native journeys and sampled visuals inspected; contrast corrections | Measured performance/large fixtures, remaining a11y and agent-quality tasks |
+| M7 Platform lifecycle | Actual Mac package runs end-to-end; archive inspected | Native installer/update/uninstall/offline checks; Mac notarization and Windows publisher signing |
+| M8 Release candidate | Public repository and pushed implementation | Polished public docs, distributable trusted artifacts, completed gates and user acceptance |
 
-## Design checks performed
+Current complete runtime reports: local ignored `artifacts/e2e-report` and `artifacts/packaged-e2e-report`; native CI retains screenshots/traces/synthetic files per build. Never upload endpoint.json or capability tokens.
 
-* Prototype inline JavaScript passed a syntax parse with Node.
-* Rendered canvas at 1000px and 390px, library at 728px, and dark agent setup at 728px; inspected screenshots with no reported console messages.
-* Simulated-DOM smoke checks passed for create, dirty-close guard, cancel, save, library, setup, agent edit and conflict-copy. These are prototype-only checks, not browser/native integration tests.
-* These checks establish rendering for those sampled states only. They do not prove native behavior, complete interaction accessibility or every flow.
+## Criterion template for each handoff
 
-## Criterion template for implementation handoffs
-
-| Criterion / flow | OS / version / architecture | Build SHA | Fixture | Evidence location | Result: pass / fail / not run | Limitation / next action |
+| Criterion / flow | Actual OS / arch | Build SHA | Synthetic fixture | Evidence | Pass / fail / not run | Remaining limitation |
 |---|---|---|---|---|---|---|
-| Replace with exact milestone criterion | Specify actual test host | Pin build | Synthetic input hash/name | Logs + files + receipts as appropriate | Not run | State what remains |
+| Exact criterion | Declared host | Pin build | Name/hash | Files + logs + receipts/screenshots as appropriate | Not run | State the unresolved case |
 
-Keep engineering completion and user acceptance distinct. User acceptance entry: date, build, milestones reviewed, accepted changes, remaining blockers. Never infer acceptance from silence.
+Record user acceptance separately: date, build, milestones reviewed, accepted changes and remaining blockers. Silence does not establish acceptance.

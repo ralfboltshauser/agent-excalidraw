@@ -37,3 +37,9 @@ Font audit found a legacy 1.05 fallback with different license provenance. It is
 ### Expanded native baseline
 
 A clean build (143 bundled library notices), full typecheck and all nine real Electron end-to-end journeys passed together. Added actual PNG file-picker import, local binary persistence, native image Undo/Redo, reopen and render; pending real font preparation interrupted by Stop; queued edit cancellation; stale renderer load refusal; and navigation before creating any drawing. Screenshots were inspected. This is macOS arm64 evidence, not a signed download or other-OS pass.
+
+### Packaged and consumer checks
+
+Actual282MB macOS arm64 package passed the same nine real journeys. ASAR inspection confirmed zero node_modules entries, the verified OFL fallback hash, and retained dependency/font notices. The npm CLI tarball is679KB compressed and installs as one dependency-free package (~3.7MB). An independent consumer completed the full diagram loop using only installed public commands/guide; isolated skill-root setup was undiscoverable and will be corrected before M5 acceptance.
+
+The all-OS run now reaches native tests after the lock correction. Windows passed7/9; fixture short-path canonicalization and hard-crash process-tree cleanup need native recheck. Ubuntu's official Electron sandbox helper requires its standard root owner and4755 mode. Configure that helper in ephemeral CI and retain sandboxing, rather than passing --no-sandbox. Native installer/public trust checks remain open.

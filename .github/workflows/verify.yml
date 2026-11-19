@@ -85,6 +85,11 @@ jobs:
         run: npm test
       - name: Build production editor, host and CLI
         run: npm run build
+      - name: Configure the official Linux sandbox helper
+        if: runner.os == 'Linux'
+        run: |
+          sudo chown root:root node_modules/electron/dist/chrome-sandbox
+          sudo chmod 4755 node_modules/electron/dist/chrome-sandbox
       - name: Run native Electron end-to-end journeys (Linux)
         if: runner.os == 'Linux'
         run: xvfb-run -a npx playwright test
@@ -108,6 +113,11 @@ jobs:
           if (!executable) throw new Error(`Packaged executable was not found: ${candidates.join(', ')}`);
           fs.appendFileSync(process.env.GITHUB_ENV, `AGENT_EXCALIDRAW_EXECUTABLE=${path.resolve(executable)}\n`);
           NODE
+      - name: Configure the packaged Linux sandbox helper
+        if: runner.os == 'Linux'
+        run: |
+          sudo chown root:root release/linux-unpacked/chrome-sandbox
+          sudo chmod 4755 release/linux-unpacked/chrome-sandbox
       - name: Verify packaged Electron journeys (Linux)
         if: runner.os == 'Linux'
         env:

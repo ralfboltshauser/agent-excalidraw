@@ -14,8 +14,11 @@
   },
   "main": "dist/main/index.js",
   "files": [
-    "dist",
+    "dist/cli",
+    "dist/skills",
     "skills",
+    "dist/dependency-inventory.json",
+    "dist/THIRD_PARTY_LICENSES.txt",
     "README.md",
     "LICENSE"
   ],
