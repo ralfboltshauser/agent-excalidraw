@@ -3113,3 +3113,567 @@ test("a hidden renderer updates its viewport and selection without waiting for a
     ),
   ).toBe(false);
 });
+
+// Presentation has no public CLI or renderer-invoke entry point. Use the actual
+// authenticated endpoint, as the MCP adapter does, without producing artifacts.
+async function presentationSocket(
+  workspace: Workspace,
+  request: Request,
+): Promise<Reply> {
+  const { createConnection } = await import("node:net");
+  const endpoint = JSON.parse(
+    await readFile(path.join(workspace.dataDirectory, "endpoint.json"), "utf8"),
+  );
+  return new Promise((resolve, reject) => {
+    const connection = createConnection(endpoint.socket);
+    let buffer = "";
+    connection.setEncoding("utf8");
+    connection.setTimeout(30_000, () =>
+      connection.destroy(new Error("Presentation socket timed out")),
+    );
+    connection.on("error", reject);
+    connection.on("connect", () =>
+      connection.write(
+        JSON.stringify({ token: endpoint.token, ...request }) + "\n",
+      ),
+    );
+    connection.on("data", (chunk) => {
+      buffer += chunk;
+      if (!buffer.includes("\n")) return;
+      connection.end();
+      try {
+        resolve(JSON.parse(buffer.slice(0, buffer.indexOf("\n"))));
+      } catch (error) {
+        reject(error);
+      }
+    });
+  });
+}
+async function presentationBytes(
+  workspace: Workspace,
+  scope: string,
+  viewId: string,
+  capture: any,
+) {
+  const chunks: Buffer[] = [];
+  for (let offset = 0; offset < capture.byteLength; offset += 65536) {
+    const chunk = result(
+      await presentationSocket(workspace, {
+        command: "presentation-read",
+        args: {
+          scope,
+          viewId,
+          mode: "chunk",
+          captureId: capture.id,
+          offset,
+          byteCount: Math.min(65536, capture.byteLength - offset),
+        },
+      }),
+    );
+    expect(chunk.sha256).toBe(capture.sha256);
+    expect(chunk.totalBytes).toBe(capture.byteLength);
+    expect(chunk.done).toBe(offset + chunk.byteCount === capture.byteLength);
+    chunks.push(Buffer.from(chunk.data, "base64"));
+  }
+  const bytes = Buffer.concat(chunks);
+  const { createHash } = await import("node:crypto");
+  expect(createHash("sha256").update(bytes).digest("hex")).toBe(capture.sha256);
+  expect(pngDimensions(bytes)).toEqual({
+    width: capture.width,
+    height: capture.height,
+  });
+  return bytes;
+}
+async function presentationArtifacts(
+  directory: string,
+): Promise<Record<string, string>> {
+  const files: Record<string, string> = {};
+  for (const item of await readdir(directory, { withFileTypes: true }).catch(
+    () => [],
+  )) {
+    if (
+      item.name === "endpoint.json" ||
+      item.name === "control.sock" ||
+      item.name === "logs"
+    )
+      continue;
+    const file = path.join(directory, item.name);
+    // Electron's internal caches are unrelated to document observation. Record
+    // the app's persistence roots and source drawing separately in the test.
+    if (item.isDirectory()) {
+      Object.assign(files, await presentationArtifacts(file));
+    } else if (/\.(json|png|svg|excalidraw)$/.test(item.name)) {
+      files[file] = (await readFile(file)).toString("base64");
+    }
+  }
+  return files;
+}
+
+test("presentation observes unsaved human pixels and save-only status entirely in memory", async ({
+  workspace,
+}) => {
+  const created = await create(workspace, "Presentation unsaved marker");
+  const drawing = created.drawing || created;
+  const identity = await target(workspace),
+    scope = randomUUID();
+  expect(
+    errorCode(
+      await workspace.invoke({
+        command: "presentation-open",
+        ...identity,
+        args: { scope },
+      }),
+    ),
+  ).toBe("UNAUTHORIZED");
+  const opened = result(
+    await presentationSocket(workspace, {
+      command: "presentation-open",
+      ...identity,
+      args: { scope },
+    }),
+  );
+  const read = (afterStateToken?: string) =>
+    presentationSocket(workspace, {
+      command: "presentation-read",
+      args: {
+        scope,
+        viewId: opened.viewId,
+        mode: "head",
+        ...(afterStateToken ? { afterStateToken } : {}),
+      },
+    });
+  const empty = result(await read());
+  expect(empty.kind).toBe("empty");
+  expect(empty.state.dirty).toBe(false);
+  expect(empty.capture).toBeUndefined();
+  const source = await readFile(drawing.path);
+  const box = await focusCanvas(workspace.page);
+  await workspace.page.keyboard.press("r");
+  await workspace.page.mouse.move(box.x + 300, box.y + 260);
+  await workspace.page.mouse.down();
+  await workspace.page.mouse.move(box.x + 500, box.y + 380, { steps: 8 });
+  expect(result(await read()).kind).toBe("busy");
+  await workspace.page.mouse.up();
+  await workspace.page.keyboard.press("v");
+  const unsaved = result(await read());
+  expect(unsaved.kind).toBe("frame");
+  expect(unsaved.state.dirty).toBe(true);
+  const bytes = await presentationBytes(
+    workspace,
+    scope,
+    opened.viewId,
+    unsaved.capture,
+  );
+  // Actual PNG must contain visible non-background pixels from the human edit.
+  const nonBackground = await workspace.page.evaluate(async (data) => {
+    const image = new Image();
+    image.src = "data:image/png;base64," + data;
+    await image.decode();
+    const canvas = document.createElement("canvas");
+    canvas.width = image.width;
+    canvas.height = image.height;
+    const context = canvas.getContext("2d")!;
+    context.drawImage(image, 0, 0);
+    const pixels = context.getImageData(0, 0, image.width, image.height).data;
+    let dark = 0;
+    for (let i = 0; i < pixels.length; i += 4)
+      if (pixels[i + 3] && pixels[i] + pixels[i + 1] + pixels[i + 2] < 500)
+        dark++;
+    return dark;
+  }, bytes.toString("base64"));
+  expect(nonBackground).toBeGreaterThan(50);
+  expect(await readFile(drawing.path)).toEqual(source);
+  result(await workspace.cli("save", identity));
+  const saved = result(await read(unsaved.stateToken));
+  expect(saved.kind).toBe("status");
+  expect(saved.state.dirty).toBe(false);
+  expect(saved.capture.id).toBe(unsaved.capture.id);
+  expect(saved.capture.sha256).toBe(unsaved.capture.sha256);
+  expect(result(await read(saved.stateToken)).kind).toBe("unchanged");
+  // The existing native shortcut journey covers OS routing; use the actual SDK
+  // controls here to isolate observer/history behavior from foreground focus.
+  await expect(workspace.page.getByTestId("button-undo")).toBeEnabled();
+  await workspace.page.getByTestId("button-undo").click();
+  await expect.poll(async () => result(await read()).kind).toBe("empty");
+  await workspace.page.getByTestId("button-redo").click();
+  await expect.poll(async () => result(await read()).kind).toBe("frame");
+});
+
+test("presentation reads preserve artifacts, viewport and agent activity and refuse inactive epochs", async ({
+  workspace,
+}) => {
+  const created = await create(workspace, "Presentation readonly");
+  const drawing = created.drawing || created;
+  result(
+    await apply(workspace, [
+      {
+        op: "create",
+        type: "text",
+        text: "Synthetic observer marker",
+        x: 50,
+        y: 50,
+      },
+    ]),
+  );
+  const identity = await target(workspace);
+  result(await workspace.cli("save", identity));
+  const before = await snapshot(workspace);
+  const status = result(await workspace.cli("status"));
+  const artifacts = await presentationArtifacts(workspace.dataDirectory),
+    source = await readFile(drawing.path);
+  const scope = randomUUID(),
+    opened = result(
+      await presentationSocket(workspace, {
+        command: "presentation-open",
+        ...identity,
+        args: { scope },
+      }),
+    );
+  const headRequest = {
+    command: "presentation-read",
+    args: { scope, viewId: opened.viewId, mode: "head" },
+  };
+  const first = result(await presentationSocket(workspace, headRequest));
+  await presentationBytes(workspace, scope, opened.viewId, first.capture);
+  for (let i = 0; i < 12; i++) {
+    const h = result(
+      await presentationSocket(workspace, {
+        ...headRequest,
+        args: { ...headRequest.args, afterStateToken: first.stateToken },
+      }),
+    );
+    expect(h.kind).toBe("unchanged");
+    expect(h.capture.id).toBe(first.capture.id);
+  }
+  expect(result(await workspace.cli("status")).agent).toEqual(status.agent);
+  // Renderer snapshot of selection and live content is unchanged; the private
+  // path never calls updateScene, selection or scrollToContent.
+  const after = result(
+    await internalSceneCommand(workspace, { command: "snapshot", ...identity }),
+  );
+  expect(after.selection).toEqual(before.selection);
+  expect(after.elements).toEqual(before.elements);
+  expect(after.revision).toBe(before.revision);
+  expect(await readFile(drawing.path)).toEqual(source);
+  expect(await presentationArtifacts(workspace.dataDirectory)).toEqual(
+    artifacts,
+  );
+  await create(workspace, "Different private synthetic drawing");
+  expect(errorCode(await presentationSocket(workspace, headRequest))).toBe(
+    "DOCUMENT_NOT_ACTIVE",
+  );
+  expect(
+    errorCode(
+      await presentationSocket(workspace, {
+        command: "presentation-read",
+        args: {
+          scope,
+          viewId: opened.viewId,
+          mode: "chunk",
+          captureId: first.capture.id,
+          offset: 0,
+          byteCount: 1,
+        },
+      }),
+    ),
+  ).toBe("DOCUMENT_NOT_ACTIVE");
+  result(await workspace.cli("open", { path: drawing.path }));
+  expect(errorCode(await presentationSocket(workspace, headRequest))).toBe(
+    "STALE_EPOCH",
+  );
+  expect(
+    errorCode(
+      await internalSceneCommand(workspace, {
+        command: "presentation-observe",
+        ...identity,
+      }),
+    ),
+  ).toBe("STALE_EPOCH");
+});
+
+test("presentation private preview fits huge bounds below public export scale floor", async ({
+  workspace,
+}) => {
+  await create(workspace, "Presentation huge sparse bounds");
+  result(
+    await apply(workspace, [
+      {
+        op: "create",
+        type: "rectangle",
+        x: -900_000,
+        y: 0,
+        width: 100,
+        height: 100,
+      },
+      {
+        op: "create",
+        type: "rectangle",
+        x: 900_000,
+        y: 0,
+        width: 100,
+        height: 100,
+      },
+    ]),
+  );
+  const identity = await target(workspace),
+    scope = randomUUID();
+  const opened = result(
+    await presentationSocket(workspace, {
+      command: "presentation-open",
+      ...identity,
+      args: { scope },
+    }),
+  );
+  const head = result(
+    await presentationSocket(workspace, {
+      command: "presentation-read",
+      args: { scope, viewId: opened.viewId, mode: "head" },
+    }),
+  );
+  expect(head.kind).toBe("frame");
+  expect(head.capture.width).toBeLessThanOrEqual(1600);
+  expect(head.capture.height).toBeGreaterThanOrEqual(1);
+  await presentationBytes(workspace, scope, opened.viewId, head.capture);
+});
+
+test("embedded viewer follows real stdio MCP captures, saves and document invalidation", async ({
+  workspace,
+}) => {
+  const { Client } = await import("@modelcontextprotocol/sdk/client/index.js");
+  const { StdioClientTransport } =
+    await import("@modelcontextprotocol/sdk/client/stdio.js");
+  const { build } = await import("esbuild");
+  const drawing = await create(workspace, "Embedded end to end");
+  result(
+    await apply(workspace, [
+      {
+        op: "create",
+        ref: "idea",
+        type: "rectangle",
+        x: 80,
+        y: 100,
+        width: 230,
+        height: 110,
+        label: "One local canvas",
+        backgroundColor: "#eeedff",
+        fillStyle: "solid",
+        strokeColor: "#6965db",
+      },
+      {
+        op: "create",
+        ref: "file",
+        type: "rectangle",
+        x: 460,
+        y: 100,
+        width: 230,
+        height: 110,
+        label: "Your drawing file",
+        backgroundColor: "#e6f5ee",
+        fillStyle: "solid",
+        strokeColor: "#3f8971",
+      },
+      { op: "create", type: "arrow", from: "idea", to: "file", label: "Save" },
+    ]),
+  );
+  const source = await readFile(drawing.path),
+    identity = await target(workspace);
+  const environment = Object.fromEntries(
+    Object.entries({
+      ...process.env,
+      AGENT_EXCALIDRAW_DATA_DIR: workspace.dataDirectory,
+    }).filter(
+      (entry): entry is [string, string] => typeof entry[1] === "string",
+    ),
+  );
+  const client = new Client(
+    { name: "Embedded end-to-end SDK host", version: "1" },
+    {
+      capabilities: {
+        extensions: {
+          "io.modelcontextprotocol/ui": {
+            mimeTypes: ["text/html;profile=mcp-app"],
+          },
+        },
+      } as any,
+    },
+  );
+  result(await workspace.invoke({ command: "install-cli" }));
+  const launcher = path.join(
+    workspace.root,
+    "bin",
+    process.platform === "win32" ? "agent-excalidraw.cmd" : "agent-excalidraw",
+  );
+  // Mac/Linux exercise resource reads from the installed bundled runtime/ASAR,
+  // with no external Node on PATH. Windows keeps its separate launcher journey.
+  const transport = new StdioClientTransport(
+    process.platform === "win32"
+      ? {
+          command: process.execPath,
+          args: [cliEntry, "mcp"],
+          env: environment,
+          stderr: "pipe",
+        }
+      : {
+          command: launcher,
+          args: ["mcp"],
+          env: { ...environment, PATH: path.dirname(launcher) },
+          stderr: "pipe",
+        },
+  );
+  let hostPage: Page | undefined;
+  try {
+    await client.connect(transport);
+    const listed = await client.listTools();
+    expect(
+      (listed.tools.find((t) => t.name === "apply")!._meta as any).ui
+        .visibility,
+    ).toEqual(["model"]);
+    expect(
+      (listed.tools.find((t) => t.name === "canvas_read")!._meta as any).ui
+        .visibility,
+    ).toEqual(["app"]);
+    const opened = await client.callTool({
+      name: "show_canvas",
+      arguments: identity,
+    });
+    expect(opened.isError).toBe(false);
+    const resource = await client.readResource({
+      uri: "ui://agent-excalidraw/viewer-v1.html",
+    });
+    const content = resource.contents[0];
+    expect("text" in content).toBe(true);
+    const html = (content as any).text;
+    expect(html).not.toContain(workspace.dataDirectory);
+    expect(html).not.toContain(identity.document);
+    const hostFile = path.join(workspace.root, "sdk-host.html");
+    await writeFile(hostFile, "<!doctype html><html><body></body></html>");
+    const nextWindow = workspace.application.waitForEvent("window");
+    await workspace.application.evaluate(async ({ BrowserWindow }, file) => {
+      const window = new BrowserWindow({
+        width: 820,
+        height: 760,
+        webPreferences: {
+          contextIsolation: true,
+          sandbox: true,
+          nodeIntegration: false,
+        },
+      });
+      await window.loadFile(file);
+    }, hostFile);
+    hostPage = await nextWindow;
+    await hostPage.waitForLoadState("domcontentloaded");
+    hostPage.on("pageerror", (error) =>
+      console.log("REFERENCE HOST ERROR:", error.message),
+    );
+    hostPage.on("console", (message) => {
+      if (message.type() === "error")
+        console.log("REFERENCE HOST CONSOLE:", message.text());
+    });
+    const uiCalls: string[] = [];
+    await hostPage.exposeFunction("testCanvasCall", async (params: any) => {
+      expect(params.name).toBe("canvas_read");
+      uiCalls.push(params.arguments.mode);
+      return client.callTool(params);
+    });
+    const host = await build({
+      stdin: {
+        resolveDir: repository,
+        contents: `
+      import{AppBridge,PostMessageTransport}from'@modelcontextprotocol/ext-apps/app-bridge';
+      const frame=document.querySelector('iframe');
+      const bridge=new AppBridge(null,{name:'Real stdio integration host',version:'1'},{serverTools:{}},{hostContext:{theme:'light',displayMode:'inline',availableDisplayModes:['inline']}});
+      bridge.oncalltool=params=>window.testCanvasCall(params);
+      bridge.oninitialized=async()=>{await bridge.sendToolInput({arguments:${JSON.stringify(identity)}});await bridge.sendToolResult(${JSON.stringify(opened)});};
+      await bridge.connect(new PostMessageTransport(frame.contentWindow,frame.contentWindow));
+      frame.srcdoc=${JSON.stringify(html)};
+      window.testBridge=bridge;
+    `,
+      },
+      bundle: true,
+      write: false,
+      format: "esm",
+      platform: "browser",
+      target: "es2022",
+    });
+    await writeFile(
+      hostFile,
+      `<!doctype html><html><body><iframe title="Drawing preview" sandbox="allow-scripts allow-forms" style="width:100%;height:650px;border:0"></iframe><script type="module">${host.outputFiles[0].text.replace(/<\/script/gi, "<\\/script")}</script></body></html>`,
+    );
+    await hostPage.reload();
+    const frame = hostPage.frameLocator("iframe");
+    await expect(frame.locator(".viewer-status")).toHaveText("Live · Unsaved");
+    await expect(frame.locator("img")).toHaveCount(1);
+    await hostPage.screenshot({
+      path: path.join(workspace.root, "embedded-live-unsaved.png"),
+    });
+    const initial = await frame.locator("img").getAttribute("src");
+    expect(await readFile(drawing.path)).toEqual(source);
+    result(await workspace.cli("save", identity));
+    await frame
+      .getByRole("button", { name: "Refresh preview", exact: true })
+      .click();
+    await expect(frame.locator(".viewer-status")).toHaveText("Live · Saved");
+    expect(await frame.locator("img").getAttribute("src")).toBe(initial);
+    result(
+      await apply(workspace, [
+        {
+          op: "create",
+          type: "text",
+          x: 100,
+          y: 320,
+          text: "The agent changed the real drawing",
+          fontSize: 25,
+        },
+      ]),
+    );
+    await frame
+      .getByRole("button", { name: "Refresh preview", exact: true })
+      .click();
+    await expect(frame.locator(".viewer-status")).toHaveText("Live · Unsaved");
+    await expect
+      .poll(() => frame.locator("img").getAttribute("src"))
+      .not.toBe(initial);
+    await hostPage.screenshot({
+      path: path.join(workspace.root, "embedded-agent-edit.png"),
+    });
+    const afterAgent = await frame.locator("img").getAttribute("src");
+    const canvas = await focusCanvas(workspace.page);
+    await workspace.page.keyboard.press("r");
+    await workspace.page.mouse.move(canvas.x + 200, canvas.y + 420);
+    await workspace.page.mouse.down();
+    await workspace.page.mouse.move(canvas.x + 390, canvas.y + 510, {
+      steps: 6,
+    });
+    await workspace.page.mouse.up();
+    await workspace.page.keyboard.press("v");
+    await hostPage.bringToFront();
+    await frame
+      .getByRole("button", { name: "Refresh preview", exact: true })
+      .click();
+    await expect
+      .poll(() => frame.locator("img").getAttribute("src"))
+      .not.toBe(afterAgent);
+    await hostPage.screenshot({
+      path: path.join(workspace.root, "embedded-human-edit.png"),
+    });
+    result(await workspace.cli("save", identity));
+    await create(workspace, "Different private synthetic drawing");
+    await frame
+      .getByRole("button", { name: "Refresh preview", exact: true })
+      .click();
+    await expect(frame.locator(".viewer-status")).toContainText("Stale");
+    await expect(frame.locator(".viewer-notice")).toContainText(
+      "no longer active",
+    );
+    await hostPage.screenshot({
+      path: path.join(workspace.root, "embedded-inactive.png"),
+    });
+    expect(uiCalls).toContain("chunk");
+    expect(uiCalls).toContain("head");
+    await hostPage.evaluate("window.testBridge.teardownResource({})");
+    await expect(frame.locator("img")).toHaveCount(0);
+  } finally {
+    await hostPage?.close().catch(() => {});
+    await client.close();
+  }
+});

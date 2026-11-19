@@ -68,6 +68,12 @@ Configure a stdio server in your agent host using its supported configuration fo
 
 Use the actual launcher path shown in Agents. MCP registration is separate from skill installation. The CLI works before registration and after its removal.
 
+### Optional embedded canvas
+
+With the MCP server connected in a compatible host, ask your agent to show the current drawing. The shared MCP App provides a live read-only preview with pan/zoom, refresh and save status. Human editing stays in the desktop app; the agent uses the same drawing commands. A card stays bound to one document session and becomes stale after a switch or reopen.
+
+[Setup, privacy and compatibility](https://github.com/ralfboltshauser/agent-excalidraw/blob/main/docs/embedded-canvas.md) explain the host requirements and observed test lanes. Run `agent-excalidraw skills get core` for the installed version's offline instructions. The CLI works independently of this UI.
+
 ## Local files, clear boundaries
 
 Manual editing is designed to work offline with bundled editor assets. Installation and an explicit update check use the network. The app does not contain an AI provider, telemetry or automatic cloud synchronization.

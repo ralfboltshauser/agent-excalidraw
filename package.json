@@ -1,6 +1,6 @@
 {
   "name": "agent-excalidraw",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "A local Excalidraw workspace for people and agents",
   "type": "module",
   "license": "MIT",
@@ -15,6 +15,7 @@
   "main": "dist/main/index.js",
   "files": [
     "dist/cli",
+    "dist/embedded",
     "dist/skills",
     "skills",
     "dist/dependency-inventory.json",
@@ -33,7 +34,8 @@
     "test": "tsx --test tests/*.test.ts",
     "package": "npm run build && electron-builder --dir",
     "dist": "npm run build && electron-builder",
-    "test:e2e": "playwright test"
+    "test:e2e": "playwright test",
+    "build:embedded": "node scripts/build-embedded.mjs"
   },
   "devDependencies": {
     "@excalidraw/excalidraw": "0.18.1",

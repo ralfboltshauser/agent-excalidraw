@@ -39,6 +39,12 @@ Update uses {"op":"update","id":"stable ID","x":120,"label":{"text":"Revised","f
 
 Canvas background is also a revision-checked operation: {"op":"canvas","viewBackgroundColor":"#ffffff"}. It can share one batch with shapes and one native Undo step; shell theme remains separate.
 
+## Optional embedded canvas
+
+When the host exposes the MCP tool show_canvas and the user wants the drawing inside their coding-agent conversation, first obtain the explicit document and epoch through snapshot, then call show_canvas with those values. The panel is a read-only mirror of the same live desktop drawing; keep editing through the existing CLI or MCP commands and save explicitly. Its image refreshes after accepted changes. A changed/closed/reopened document expires the old panel: create a fresh view only for the drawing the user requested.
+
+If show_canvas is unavailable or the host cannot display MCP Apps, use the normal render-and-view workflow and leave the desktop app open. CLI-only work requires no MCP configuration. App-only canvas_read carries preview bytes for the UI; agents use snapshot/render for their own inspection. Local transport does not prevent the host from retaining displayed pixels or the agent provider from processing content supplied to it.
+
 ## Preserve human work
 
 Target the returned document ID, never whichever window is focused. Inspect selection with snapshot --selection, groups with snapshot --group <group ID>, or named shapes with snapshot --ids <id1,id2>. A region rectangle can be supplied through --input; inspect schema for its shape. Use view only when you intend to change selection/viewport. Keep the person's selection/viewport unless they ask you to focus changes. DOCUMENT_BUSY means the person is mid-edit: wait briefly, then inspect again. STALE_REVISION or STALE_EPOCH requires a fresh snapshot and a newly considered batch. Do not force an old snapshot over current work. Moving a shape with a bent, elbow or rotated bound arrow can return UNSUPPORTED_OPERATION; the batch is refused without changes. Preserve that geometry and use the editor rather than repeatedly flattening or replacing its connectors.

@@ -42,6 +42,10 @@ The initial SVG audit found a CDN fallback font reference despite zero editing e
 
 ## Reproduce and record
 
+### Embedded viewer increment (0.2.0)
+
+The [embedded verification report](../verification/embedded-canvas.md) records the new build separately from the historical 0.1 evidence above. Typecheck, 82 module cases, eight enabled viewer cases and 29 native journeys pass; all 29 also pass against signed arm64 ASAR `766ede6aeb9dc0cf2a6d497fdde2fbf3b5139d0edf19d95a045a5a405a100e7b`. That bundle is installed locally. Real T3 E0 bridge reads and production model-side calls succeeded, while production host visual qualification, secondary lanes and long-duration evidence remain distinct open gates. Test interruption at the user's request was honored; it is not counted as completed verification. No existing public trust gate is closed by this increment.
+
 Run the actual suites and scripts from the repository root; see [offline/performance reproduction](../verification/offline-and-performance.md#reproduce), [native tests](../../tests/electron.e2e.ts), [non-renderer-CDP background probe](../../tests/native-background.ts), and [native CI workflow](../../.github/workflows/verify.yml). Generated reports/screenshots are local or per-run CI artifacts rather than committed report links. Never upload endpoint capability files, tokens, credentials or private drawings.
 
 For each handoff record criterion/flow, actual OS/architecture, source and package identity, synthetic fixture, evidence, pass/fail/not-run, and limitation. Record user acceptance separately with date, build, reviewed milestones and accepted scope changes. Silence does not establish acceptance.

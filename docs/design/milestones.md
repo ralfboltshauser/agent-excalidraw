@@ -175,4 +175,4 @@ Mobile/tablet apps, remote/LAN editing, real-time multiuser CRDT collaboration, 
 
 ## Planned follow-up: embedded canvas
 
-The [shared embedded canvas plan](embedded-canvas-plan.md) defines E0–E6 for one optional MCP App viewer across qualified T3 and Claude Desktop routes, preserving CLI fallback and the existing renderer authority. E7 is a separate full-editing design gate. This research does not implement those features or close any outstanding original milestone criterion.
+The [shared embedded canvas plan](embedded-canvas-plan.md) defines E0–E6 for one optional MCP App viewer across qualified T3 and Claude Desktop routes, preserving CLI fallback and the existing renderer authority. The shared viewer is implemented in 0.2.0 and its source/package native chain passes; installed host qualification remains partial in the [verification report](../verification/embedded-canvas.md). E7 is a separate full-editing design gate. This increment does not close outstanding original milestone criteria.

@@ -1,6 +1,6 @@
 # Shared embedded canvas — researched implementation plan
 
-2026-11-19. **Planning only:** no embedded MCP App, local scene HTTP server or host configuration has been implemented by this work. The existing self-contained HTML snapshot is a rendering proof, not live integration. The desktop app and its CLI continue to work as before.
+Planned 2026-11-19; implementation status updated 2026-11-20. E0's actual T3 bridge and the E1–E3 shared implementation now have runtime evidence. All 29 native journeys pass against source and the signed Mac package, including the real stdio viewer chain. E4/E6 host qualification and distribution evidence remain partial; see the [verification report](../verification/embedded-canvas.md). E5 and E7 remain explicit future scope. No HTTP scene server was added.
 
 ## Product decision
 
@@ -203,4 +203,4 @@ Produce a separate technical proof before committing that scope. Do not create t
 - Status polling starves edits or grows memory: change scheduling/capture internals and rerun race/performance tests before expanding scope.
 - A host needs remote public hosting for the required base UI: keep that surface outside the local-first release unless an explicit different privacy scope is accepted.
 
-The immediate implementation task is **E0**, followed by E1–E4. E5 is a deliberate enhancement; E6 closes distribution/documentation for the chosen feature set. E7 requires its own accepted design. Nothing here marks the original application's outstanding release gates passed.
+The next verification work is **E4**: complete the production host UI lanes, stress/performance evidence and native CI. E6 documentation and installed consumer checks proceed alongside it. Native computer use timed out after the user-authorized resume; do not convert a successful production `show_canvas` call into a visual qualification claim. E5 is a deliberate enhancement, and E7 requires its own accepted design. Nothing here marks the original application's outstanding release gates passed.

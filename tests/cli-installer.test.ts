@@ -18,6 +18,7 @@ import {
   installApp,
   type InstallerDependencies,
 } from "../src/cli/installer.js";
+import { VERSION } from "../src/cli/transport.js";
 import { AppError } from "../src/shared/types.js";
 
 async function fixture(
@@ -88,7 +89,7 @@ async function fixture(
       if (String(url) === base + "manifest")
         return new Response(
           JSON.stringify({
-            version: "0.1.0",
+            version: VERSION,
             assets: [{ platform, arch: "arm64", name, sha256: checksum }],
           }),
         );

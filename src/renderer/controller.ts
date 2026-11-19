@@ -14,6 +14,11 @@ import type {
   BinaryFiles,
 } from "@excalidraw/excalidraw/types";
 import { flushSync } from "react-dom";
+import {
+  PRESENTATION_MAX_SIDE,
+  PRESENTATION_MAX_PIXELS,
+  PRESENTATION_MAX_PNG_BYTES,
+} from "../shared/presentation";
 import { makeSvgSelfContained } from "./svg-export";
 import {
   AppError,
@@ -623,6 +628,7 @@ export function createController(api: ExcalidrawImperativeAPI, bridge: Bridge) {
   function receipt(extra: Record<string, any> = {}) {
     return { document: documentId, epoch, revision, ...extra };
   }
+  let notificationPending = false;
   function sync(notify = true) {
     if (loading || !documentId) return;
     const scene = sceneFrom(api),
@@ -633,16 +639,34 @@ export function createController(api: ExcalidrawImperativeAPI, bridge: Bridge) {
       latestScene = scene;
       captures.set(revision, fp);
       if (captures.size > 500) captures.delete(captures.keys().next().value!);
-      if (notify)
-        bridge.notifyChange({
-          document: documentId,
-          epoch,
-          revision,
-          dirty: fp !== savedFingerprint,
-          scene: clone(scene),
-        });
+      notificationPending = true;
+    }
+    if (notify && notificationPending) {
+      notificationPending = false;
+      bridge.notifyChange({
+        document: documentId,
+        epoch,
+        revision,
+        dirty: lastFingerprint !== savedFingerprint,
+        scene: clone(latestScene),
+      });
     }
   }
+  function presentationIdentity(request: Request) {
+    if (!request.document || request.document !== documentId)
+      throw new AppError(
+        "DOCUMENT_NOT_ACTIVE",
+        "The canvas view's drawing is no longer active.",
+      );
+    if (!request.epoch || request.epoch !== epoch)
+      throw new AppError(
+        "STALE_EPOCH",
+        "The canvas view belongs to an old drawing epoch.",
+      );
+    if (loading)
+      throw new AppError("APP_STARTING", "The drawing is still loading.");
+  }
+
   function isBusy() {
     const s = api.getAppState();
     return (
@@ -749,6 +773,7 @@ export function createController(api: ExcalidrawImperativeAPI, bridge: Bridge) {
     documentId = id;
     epoch = nextEpoch;
     revision = 0;
+    notificationPending = false;
     receiptCache.clear();
     captures.clear();
     lastBatch = null;
@@ -1013,10 +1038,30 @@ export function createController(api: ExcalidrawImperativeAPI, bridge: Bridge) {
         );
         return success(receipt());
       }
+      const presentation =
+        request.command === "presentation-observe" ||
+        request.command === "presentation-capture";
+      if (presentation) {
+        presentationIdentity(request);
+        sync(false);
+        if (request.command === "presentation-observe")
+          return success(
+            receipt({
+              dirty: lastFingerprint !== savedFingerprint,
+              busy: isBusy(),
+              empty: !api.getSceneElements().length,
+            }),
+          );
+        if (request.expectedRevision !== revision || isBusy())
+          throw new AppError(
+            "STALE_REVISION",
+            "The drawing changed or is being edited. Refresh the canvas.",
+          );
+      }
       ensureDocument(request);
       if (loading)
         throw new AppError("APP_STARTING", "The drawing is still loading.");
-      sync();
+      if (!presentation) sync();
       if (request.command === "rebind") {
         documentId = args.document;
         epoch = args.epoch || uuid();
@@ -1217,7 +1262,11 @@ export function createController(api: ExcalidrawImperativeAPI, bridge: Bridge) {
           }),
         );
       }
-      if (request.command === "render" || request.command === "export") {
+      if (
+        request.command === "render" ||
+        request.command === "export" ||
+        request.command === "presentation-capture"
+      ) {
         const captured = clone(sceneFrom(api)),
           capturedReceipt = receipt();
         const format = args.format || "png";
@@ -1256,8 +1305,25 @@ export function createController(api: ExcalidrawImperativeAPI, bridge: Bridge) {
             "EMPTY_DRAWING",
             "Add a shape before rendering this drawing.",
           );
-        const scale = args.scale ?? 1;
-        if (typeof scale !== "number" || scale < 0.1 || scale > 4)
+        const preview = request.command === "presentation-capture";
+        const previewBounds = preview ? getCommonBounds(elements as any) : null;
+        let scale = previewBounds
+          ? Math.min(
+              1,
+              PRESENTATION_MAX_SIDE /
+                Math.max(
+                  previewBounds[2] - previewBounds[0] + padding * 2,
+                  previewBounds[3] - previewBounds[1] + padding * 2,
+                ),
+            )
+          : (args.scale ?? 1);
+        if (
+          typeof scale !== "number" ||
+          !Number.isFinite(scale) ||
+          scale <= 0 ||
+          (!preview && scale < 0.1) ||
+          scale > 4
+        )
           throw new AppError(
             "INVALID_ARGUMENT",
             "Export scale must be between 0.1 and 4.",
@@ -1266,7 +1332,7 @@ export function createController(api: ExcalidrawImperativeAPI, bridge: Bridge) {
           ...captured.appState,
           exportScale: scale,
           exportBackground: args.background !== false,
-          exportEmbedScene: args.embedScene === true,
+          exportEmbedScene: !preview && args.embedScene === true,
           exportWithDarkMode: false,
         };
         const bounds = getCommonBounds(
@@ -1304,7 +1370,7 @@ export function createController(api: ExcalidrawImperativeAPI, bridge: Bridge) {
           throw new AppError("INVALID_ARGUMENT", "Format must be png or svg.");
         const pixelWidth = (bounds[2] - bounds[0] + padding * 2) * scale,
           pixelHeight = (bounds[3] - bounds[1] + padding * 2) * scale;
-        if (pixelWidth < 1 || pixelHeight < 1)
+        if (!preview && (pixelWidth < 1 || pixelHeight < 1))
           throw new AppError(
             "RENDER_TOO_SMALL",
             "This frame is smaller than one pixel at the requested scale. Increase scale or export SVG.",
@@ -1318,20 +1384,55 @@ export function createController(api: ExcalidrawImperativeAPI, bridge: Bridge) {
             "RENDER_TOO_LARGE",
             "This image would be too large. Reduce scale, render a selection, or export SVG.",
           );
-        const blob = await exportToBlob({
-          elements: elements as any,
-          appState: appState as any,
-          files: captured.files,
-          mimeType: "image/png",
-          exportPadding: padding,
-          exportingFrame: exportingFrame as any,
-          getDimensions: (width: number, height: number) => ({
-            width: width * scale,
-            height: height * scale,
-            scale,
-          }),
-        });
+        const renderBlob = () =>
+          exportToBlob({
+            elements: elements as any,
+            appState: appState as any,
+            files: captured.files,
+            mimeType: "image/png",
+            exportPadding: padding,
+            exportingFrame: exportingFrame as any,
+            getDimensions: (width: number, height: number) => ({
+              width: preview
+                ? Math.max(1, Math.floor(width * scale))
+                : width * scale,
+              height: preview
+                ? Math.max(1, Math.floor(height * scale))
+                : height * scale,
+              scale,
+            }),
+          });
+        let blob = await renderBlob();
+        for (
+          let attempt = 0;
+          preview && blob.size > PRESENTATION_MAX_PNG_BYTES && attempt < 4;
+          attempt++
+        ) {
+          scale *= 0.7;
+          blob = await renderBlob();
+        }
         const bytes = new Uint8Array(await blob.arrayBuffer());
+        if (preview) {
+          presentationIdentity(request);
+          sync(false);
+          if (revision !== capturedReceipt.revision || isBusy())
+            throw new AppError(
+              "STALE_REVISION",
+              "The drawing changed during capture. Refresh the canvas.",
+            );
+          const width = new DataView(bytes.buffer).getUint32(16),
+            height = new DataView(bytes.buffer).getUint32(20);
+          if (
+            bytes.length > PRESENTATION_MAX_PNG_BYTES ||
+            width > PRESENTATION_MAX_SIDE ||
+            height > PRESENTATION_MAX_SIDE ||
+            width * height > PRESENTATION_MAX_PIXELS
+          )
+            throw new AppError(
+              "PRESENTATION_TOO_LARGE",
+              "The preview exceeds the image budget even at reduced resolution.",
+            );
+        }
         let str = "";
         for (const byte of bytes) str += String.fromCharCode(byte);
         return success({

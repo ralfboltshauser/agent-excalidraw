@@ -17,7 +17,7 @@ import { createServer, type Server } from "node:net";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import { pathToFileURL } from "node:url";
-import { send, dataDirectory } from "../src/cli/transport.js";
+import { send, dataDirectory, VERSION } from "../src/cli/transport.js";
 import { installSkills, uninstallSkills, roots } from "../src/cli/skills.js";
 import { validateRequest, schemaDocument } from "../src/cli/schema.js";
 import { commands } from "../src/shared/commands.js";
@@ -181,7 +181,7 @@ test("MCP enumerates shared commands and invokes the same app protocol", async (
     const listed = await client.listTools();
     assert.deepEqual(
       listed.tools.map((t) => t.name).sort(),
-      commands.map((c) => c.name.replaceAll("-", "_")).sort(),
+      [...commands.map((c) => c.name.replaceAll("-", "_")), "show_canvas"].sort(),
     );
     const result = await client.callTool({
       name: "apply",
@@ -823,7 +823,7 @@ test("unknown flags and missing option values return structured JSON errors whil
     cli,
     "--version",
   ]);
-  assert.match(version.stdout, /0\.1\.0/);
+  assert.equal(version.stdout.trim(), VERSION);
 });
 test("shared canonical skill records both homes and refuses source removal until the other home disconnects", async () => {
   const dir = await temporary(),
@@ -1016,14 +1016,14 @@ test("install --version selects the requested release instead of invoking the ro
       [...argumentsBeforeCommand, "--version"],
       { env },
     );
-    assert.equal(rootVersion.stdout.trim(), "0.1.0");
+    assert.equal(rootVersion.stdout.trim(), VERSION);
     assert.equal(rootVersion.stderr, "");
     const explicitVersion = await exec(
       process.execPath,
       [...argumentsBeforeCommand, "version", "--json"],
       { env },
     );
-    assert.equal(JSON.parse(explicitVersion.stdout).result.version, "0.1.0");
+    assert.equal(JSON.parse(explicitVersion.stdout).result.version, VERSION);
     const missing = await failedJson(["install", "--version", "--json"]);
     assert.equal(missing.error.code, "INVALID_ARGUMENT");
     assert.match(missing.error.message, /version/);

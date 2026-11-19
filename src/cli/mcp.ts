@@ -3,6 +3,8 @@ import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js"
 import {
   CallToolRequestSchema,
   ListToolsRequestSchema,
+  ListResourcesRequestSchema,
+  ReadResourceRequestSchema,
 } from "@modelcontextprotocol/sdk/types.js";
 import { readFile } from "node:fs/promises";
 import { commands } from "../shared/commands.js";
@@ -10,36 +12,59 @@ import { failure } from "../shared/types.js";
 import { requestApp, VERSION } from "./transport.js";
 import { validateRequest, shapeFor } from "./schema.js";
 import { z } from "zod";
+import { createCanvasMcp } from "./mcp-apps.js";
 export function jsonSchema(schema: z.ZodTypeAny): any {
   return z.toJSONSchema(schema);
 }
 export async function runMcp() {
   const server = new Server(
     { name: "agent-excalidraw", version: VERSION },
-    { capabilities: { tools: {} } },
+    { capabilities: { tools: {}, resources: {} } },
+  );
+  const canvas = createCanvasMcp({
+    capabilities: () => server.getClientCapabilities(),
+  });
+  server.setRequestHandler(ListResourcesRequestSchema, async () => ({
+    resources: canvas.resources(),
+  }));
+  server.setRequestHandler(ReadResourceRequestSchema, async (request) =>
+    canvas.readResource(request.params.uri),
   );
   server.setRequestHandler(ListToolsRequestSchema, async () => ({
-    tools: commands.map((command) => ({
-      name: command.name.replaceAll("-", "_"),
-      description: command.description,
-      inputSchema: jsonSchema(z.object(shapeFor(command.name)).strict()),
-      annotations: {
-        readOnlyHint: [
-          "status",
-          "list",
-          "snapshot",
-          "operation-status",
-          "path-suggest",
-        ].includes(command.name),
-        destructiveHint: ["apply", "move", "revert-last-agent-batch"].includes(
-          command.name,
-        ),
-        openWorldHint: false,
-      },
-    })),
+    tools: [
+      ...commands.map((command) => ({
+        name: command.name.replaceAll("-", "_"),
+        description: command.description,
+        inputSchema: jsonSchema(z.object(shapeFor(command.name)).strict()),
+        ...(canvas.supported()
+          ? { _meta: { ui: { visibility: ["model"] } } }
+          : {}),
+        annotations: {
+          readOnlyHint: [
+            "status",
+            "list",
+            "snapshot",
+            "operation-status",
+            "path-suggest",
+          ].includes(command.name),
+          destructiveHint: [
+            "apply",
+            "move",
+            "revert-last-agent-batch",
+          ].includes(command.name),
+          openWorldHint: false,
+        },
+      })),
+      ...canvas.tools(),
+    ],
   }));
   server.setRequestHandler(CallToolRequestSchema, async (request) => {
     try {
+      if (canvas.owns(request.params.name))
+        return await canvas.call(
+          request.params.name,
+          request.params.arguments || {},
+        );
       const command = request.params.name.replaceAll("_", "-");
       const reply = await requestApp(
         validateRequest(command, request.params.arguments || {}),

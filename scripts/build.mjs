@@ -1,3 +1,4 @@
+import { buildEmbeddedViewer } from "./build-embedded.mjs";
 import { build as bundle } from "esbuild";
 import { build as vite } from "vite";
 import { writeLicenses } from "./licenses.mjs";
@@ -26,6 +27,7 @@ await bundle({
   format: "cjs",
   external: ["electron"],
 });
+const embedded = await buildEmbeddedViewer();
 const renderer = await vite({
   root: "src/renderer",
   base: "./",
@@ -64,6 +66,7 @@ await writeFile("dist/cli/package.json", '{"type":"module"}');
 const outputs = Array.isArray(renderer) ? renderer : [renderer];
 const modules = [
   ...Object.keys(native.metafile.inputs),
+  ...Object.keys(embedded.metafile.inputs),
   ...outputs.flatMap((output) =>
     output.output.flatMap((chunk) =>
       chunk.type === "chunk" ? Object.keys(chunk.modules) : [],

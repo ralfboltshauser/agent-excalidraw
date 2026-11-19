@@ -43,6 +43,27 @@ import {
   type Scene,
   type HostState,
 } from "../shared/types.js";
+import { CanvasPresentation } from "./canvas-presentation.js";
+import { presentationReadRequestSchema } from "../shared/presentation.js";
+const presentationCommands = new Set([
+  "presentation-open",
+  "presentation-read",
+]);
+const presentation = new CanvasPresentation({
+  current: () =>
+    store?.active
+      ? { document: store.active.id, epoch, title: store.active.title, saving }
+      : null,
+  observe: (document, epoch) =>
+    scene({ command: "presentation-observe", document, epoch }),
+  capture: (document, epoch, expectedRevision) =>
+    scene({
+      command: "presentation-capture",
+      document,
+      epoch,
+      expectedRevision,
+    }),
+});
 const here = path.dirname(fileURLToPath(import.meta.url));
 app.setName("agent-excalidraw");
 if (process.env.AGENT_EXCALIDRAW_DATA_DIR)
@@ -376,6 +397,22 @@ const mutationCommands = new Set([
   "revert-last-agent-batch",
 ]);
 async function execute(request: Request, fromAgent = false): Promise<any> {
+  if (presentationCommands.has(request.command)) {
+    if (!fromAgent)
+      throw new AppError(
+        "UNAUTHORIZED",
+        "Canvas presentation is available only through the private socket.",
+      );
+    if (request.command === "presentation-open")
+      return presentation.open(request);
+    const parsed = presentationReadRequestSchema.safeParse(request);
+    if (!parsed.success)
+      throw new AppError(
+        "INVALID_ARGUMENT",
+        "Invalid presentation-read request: " + parsed.error.message,
+      );
+    return presentation.read(parsed.data.args);
+  }
   const args = request.args || {};
   const command = request.command;
   if (!command || typeof command !== "string")
@@ -1130,6 +1167,7 @@ function run(request: Request, fromAgent = false): Promise<Reply> {
         );
       const key =
         fromAgent &&
+        !presentationCommands.has(request.command) &&
         request.requestId &&
         request.command !== "operation-status" &&
         !mutationCommands.has(request.command)
@@ -1148,6 +1186,7 @@ function run(request: Request, fromAgent = false): Promise<Reply> {
       const reply = success(await execute(request, fromAgent));
       if (
         fromAgent &&
+        !presentationCommands.has(request.command) &&
         !["status", "list", "path-suggest", "integration-status"].includes(
           request.command,
         )
@@ -1165,6 +1204,7 @@ function run(request: Request, fromAgent = false): Promise<Reply> {
     } catch (e) {
       if (
         !fromAgent &&
+        !presentationCommands.has(request.command) &&
         request.command !== "export-preview" &&
         (e as any).code !== "CANCELLED"
       ) {
