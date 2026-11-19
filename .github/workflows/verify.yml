@@ -3,6 +3,19 @@ name: Native verification
 on:
   push:
     branches: [main]
+    # Runtime notices and assets remain covered; documentation-only updates use
+    # the preceding code verification rather than cancelling native runners.
+    paths-ignore:
+      - README.md
+      - CONTRIBUTING.md
+      - SECURITY.md
+      - docs/design/**
+      - docs/verification/**
+      - docs/screenshots/**
+      - docs/architecture.md
+      - docs/releases.md
+      - docs/implementation-log.md
+      - examples/**
   pull_request:
   workflow_dispatch:
 

@@ -575,14 +575,32 @@ test("a crash between body and metadata publication uses conservative time and r
   const { drawing } = await store.create({ title: "Interrupted snapshot" });
   await store.writeRecovery(edited(), 2);
   const body = path.join(root, "data", "recovery", `${drawing.id}.json`);
+  const meta = path.join(root, "data", "recovery", `${drawing.id}.meta.json`);
+  const previousMetadataBytes = await fs.readFile(meta, "utf8");
+  const previousMetadata = JSON.parse(previousMetadataBytes);
+  const previousBodyTime = (await fs.stat(body)).mtimeMs;
   const previous = (await store.recoveries())[0];
+  assert.equal(
+    previous.time,
+    Math.min(previousMetadata.time, previousBodyTime),
+  );
   const data = JSON.parse(await fs.readFile(body, "utf8"));
   data.time += 1000;
   data.revision = 3;
   data.scene.elements[0].x = 777;
   await fs.writeFile(body, JSON.stringify(data)); // Metadata is deliberately left old.
+  const replacementBodyTime = (await fs.stat(body)).mtimeMs;
   const summary = (await store.recoveries())[0];
-  assert.equal(summary.time, previous.time);
+  // The old summary may have been capped by the original body's fractional
+  // filesystem mtime. Replacing that body removes that cap, but must never
+  // advance the summary past the original metadata's capture timestamp.
+  assert.equal(
+    summary.time,
+    Math.min(previousMetadata.time, replacementBodyTime),
+  );
+  assert.ok(summary.time <= previousMetadata.time);
+  assert.ok(summary.time < data.time);
+  assert.equal(await fs.readFile(meta, "utf8"), previousMetadataBytes);
   const restored = await store.restoreRecovery(drawing.id);
   assert.equal(restored.scene.elements[0].x, 777);
 });
