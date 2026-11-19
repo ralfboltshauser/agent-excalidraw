@@ -10,7 +10,7 @@ import {z} from 'zod';
 export function jsonSchema(schema:z.ZodTypeAny):any{return z.toJSONSchema(schema);}
 export async function runMcp(){
   const server=new Server({name:'agent-excalidraw',version:VERSION},{capabilities:{tools:{}}});
-  server.setRequestHandler(ListToolsRequestSchema,async()=>({tools:commands.map(command=>({name:command.name.replaceAll('-','_'),description:command.description,inputSchema:jsonSchema(z.object(shapeFor(command.name)).passthrough()),annotations:{readOnlyHint:['status','list','snapshot','operation-status','path-suggest'].includes(command.name),destructiveHint:['apply','move','revert-last-agent-batch'].includes(command.name),openWorldHint:false}}))}));
+  server.setRequestHandler(ListToolsRequestSchema,async()=>({tools:commands.map(command=>({name:command.name.replaceAll('-','_'),description:command.description,inputSchema:jsonSchema(z.object(shapeFor(command.name)).strict()),annotations:{readOnlyHint:['status','list','snapshot','operation-status','path-suggest'].includes(command.name),destructiveHint:['apply','move','revert-last-agent-batch'].includes(command.name),openWorldHint:false}}))}));
   server.setRequestHandler(CallToolRequestSchema,async request=>{
     try{
       const command=request.params.name.replaceAll('_','-');

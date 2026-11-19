@@ -100,7 +100,7 @@ const test=base.extend<{workspace:Workspace}>({
           if(!saved.ok)await workspace.invoke({command:'save-as',args:{path:path.join(root,`teardown-${randomUUID()}.excalidraw`)}});
         }
       }catch(error){processLogs.push(`TEARDOWN SAVE: ${String(error)}\n`)}
-      try{await current.close()}catch(error){processLogs.push(`TEARDOWN CLOSE: ${String(error)}\n`);current.process().kill('SIGKILL')}
+      try{await Promise.race([current.close(),new Promise((_,reject)=>{const timeout=setTimeout(()=>reject(new Error('Native test app did not close after saving.')),5000);timeout.unref()})])}catch(error){processLogs.push(`TEARDOWN CLOSE: ${String(error)}\n`);current.process().kill('SIGKILL')}
       await testInfo.attach('electron-process.log',{body:Buffer.from(processLogs.join('')),contentType:'text/plain'});
       await testInfo.attach('test-home.txt',{body:Buffer.from(root),contentType:'text/plain'});
       // Keep the fixture on failure for diagnosis and never delete source files
@@ -355,4 +355,184 @@ test('a real process crash offers a recovery copy without replacing the source',
   await workspace.screenshot('02-recovered-copy');
   await testInfo.attach('untouched-original',{path:created.path,contentType:'application/json'});
   await testInfo.attach('recovered-copy',{path:restored.active.path,contentType:'application/json'});
+});
+
+async function internalSceneCommand(workspace:Workspace,request:Request):Promise<Reply>{
+  // Exercise the real renderer through the same narrow IPC channel as main.
+  // The public CLI/renderer bridge intentionally cannot invoke load/capture.
+  const envelope={id:`e2e-${randomUUID()}`,request};
+  return workspace.application.evaluate(({BrowserWindow,ipcMain},envelope)=>new Promise<Reply>((resolve,reject)=>{
+    const timeout=setTimeout(()=>{ipcMain.removeListener('scene-reply',listener);reject(new Error('The actual renderer did not reply to the integration probe.'))},10_000);
+    const listener=(_event:unknown,message:{id:string;reply:Reply})=>{
+      if(message.id!==envelope.id)return;
+      clearTimeout(timeout);ipcMain.removeListener('scene-reply',listener);resolve(message.reply);
+    };
+    ipcMain.on('scene-reply',listener);
+    BrowserWindow.getAllWindows()[0].webContents.send('scene-command',envelope);
+  }),envelope);
+}
+
+test('a real PNG imported through the image picker survives undo, save and reopen',async({workspace},testInfo)=>{
+  const drawing=await create(workspace,'A local image');
+  const imagePath=path.join(workspace.root,'local-image.png');
+  const dataUrl=await workspace.page.evaluate(()=>{
+    const canvas=document.createElement('canvas');canvas.width=320;canvas.height=180;
+    const ctx=canvas.getContext('2d')!;
+    ctx.fillStyle='#eeedff';ctx.fillRect(0,0,320,180);
+    ctx.strokeStyle='#6965db';ctx.lineWidth=3;ctx.strokeRect(24,24,272,132);
+    ctx.fillStyle='#20212b';ctx.font='22px sans-serif';ctx.fillText('A local image',82,96);
+    return canvas.toDataURL('image/png');
+  });
+  await writeFile(imagePath,Buffer.from(dataUrl.split(',')[1],'base64'));
+  const chooserPromise=workspace.page.waitForEvent('filechooser',{timeout:10_000});
+  await workspace.page.getByTestId('toolbar-image').locator('..').click();
+  const chooser=await chooserPromise.catch(async error=>{await workspace.screenshot('image-picker-failure');throw error});
+  await chooser.setFiles(imagePath);
+  await expect.poll(async()=>{
+    const scene=await snapshot(workspace);
+    return Boolean(scene.elements.find((element:any)=>element.type==='image')?.fileId);
+  }).toBe(true);
+  const canvas=workspace.page.locator('canvas.excalidraw__canvas.interactive');
+  const bounds=await canvas.boundingBox();if(!bounds)throw new Error('Image placement canvas has no bounds.');
+  await workspace.page.mouse.move(bounds.x+380,bounds.y+280);
+  await workspace.page.mouse.click(bounds.x+380,bounds.y+280);
+  await expect.poll(async()=>{const image=(await snapshot(workspace)).elements.find((element:any)=>element.type==='image');return Boolean(image&&image.width>0&&image.height>0)}).toBe(true);
+  const imported=(await snapshot(workspace)).elements.find((element:any)=>element.type==='image');
+  expect(imported.fileId).toBeTruthy();
+  result(await workspace.cli('save',await target(workspace)));
+  const persisted=JSON.parse(await readFile(drawing.path,'utf8'));
+  expect(persisted.files[imported.fileId].mimeType).toBe('image/png');
+  const binary=persisted.files[imported.fileId].dataURL;
+  expect(binary).toMatch(/^data:image\/png;base64,/);
+  expect([...Buffer.from(binary.split(',')[1],'base64').subarray(0,8)]).toEqual([137,80,78,71,13,10,26,10]);
+  await workspace.screenshot('01-imported-image');
+  await focusCanvas(workspace.page);
+  const beforeUndo=await snapshot(workspace);
+  await workspace.page.keyboard.press(`${modifier}+z`);
+  let undoSteps=1;
+  let undone=await snapshot(workspace);
+  // The pinned SDK records asynchronous image insertion and placement at two
+  // native history boundaries. Agent batches have their separate one-step test.
+  if(undone.elements.some((element:any)=>element.type==='image')){
+    await workspace.page.keyboard.press(`${modifier}+z`);undoSteps++;
+  }
+  await expect.poll(async()=>((await snapshot(workspace)).elements.filter((element:any)=>element.type==='image').length)).toBe(0);
+  await workspace.screenshot('02-image-undo');
+  for(let step=0;step<undoSteps;step++)await workspace.page.keyboard.press(`${modifier}+Shift+z`);
+  await expect.poll(async()=>((await snapshot(workspace)).elements.filter((element:any)=>element.type==='image').length)).toBe(1);
+  const redone=(await snapshot(workspace)).elements.find((element:any)=>element.type==='image');
+  const originalImage=beforeUndo.elements.find((element:any)=>element.type==='image');
+  expect(redone.fileId).toBe(imported.fileId);
+  expect({x:redone.x,y:redone.y,width:redone.width,height:redone.height}).toEqual({x:originalImage.x,y:originalImage.y,width:originalImage.width,height:originalImage.height});
+  await testInfo.attach('native-image-history',{body:Buffer.from(JSON.stringify({undoSteps,redoSteps:undoSteps})),contentType:'application/json'});
+  result(await workspace.cli('save',await target(workspace)));
+  result(await workspace.cli('open',{path:drawing.path}));
+  const reopened=(await snapshot(workspace)).elements.find((element:any)=>element.type==='image');
+  expect(reopened.fileId).toBe(imported.fileId);expect(reopened.width).toBeGreaterThan(0);expect(reopened.height).toBeGreaterThan(0);
+  const restored=JSON.parse(await readFile(drawing.path,'utf8'));
+  expect(restored.files[reopened.fileId].dataURL).toBe(binary);
+  const output=path.join(workspace.root,'imported-image-render.png');
+  result(await workspace.cli('render',{...await target(workspace),output,format:'png'}));
+  await workspace.screenshot('03-reopened-image');
+  await testInfo.attach('image-source',{path:imagePath,contentType:'image/png'});
+  await testInfo.attach('drawing-with-embedded-image',{path:drawing.path,contentType:'application/json'});
+  await testInfo.attach('reopened-image-render',{path:output,contentType:'image/png'});
+});
+
+test('Stop cancels both font preparation and queued edits before anything is applied',async({workspace})=>{
+  await create(workspace,'Stop before commit');
+  const before=await snapshot(workspace);
+  await workspace.page.evaluate(()=>{
+    const fonts=document.fonts;
+    const original=fonts.load;
+    const gate={blocked:false,release:null as (()=>void)|null,original};
+    (window as any).__e2eFontGate=gate;
+    // Delay the real browser font preparation rather than replace measurement,
+    // the editor, the renderer command handler or any drawing state.
+    fonts.load=async function(font:string,text?:string){
+      gate.blocked=true;
+      await new Promise<void>(resolve=>gate.release=resolve);
+      return original.call(fonts,font,text);
+    };
+  });
+  let pending:Promise<Reply>|undefined,queued:Promise<Reply>|undefined;
+  try{
+    pending=apply(workspace,[{op:'create',type:'text',text:'Must never appear',x:180,y:180}],before);
+    await workspace.page.waitForFunction(()=>(window as any).__e2eFontGate?.blocked===true);
+    queued=apply(workspace,[{op:'create',type:'rectangle',x:500,y:200,width:100,height:80}],before);
+    const stopped=result(await workspace.invoke({command:'stop',args:{session:'e2e-agent'}}));
+    expect(stopped.paused).toBe(true);
+    await workspace.page.evaluate(()=>{
+      const gate=(window as any).__e2eFontGate;
+      document.fonts.load=gate.original;gate.release();
+    });
+    expect(errorCode(await pending)).toBe('OPERATION_CANCELLED');
+    expect(['OPERATION_CANCELLED','SESSION_PAUSED']).toContain(errorCode(await queued));
+    const unchanged=await snapshot(workspace);
+    expect(unchanged.elements).toHaveLength(0);expect(unchanged.revision).toBe(before.revision);
+    expect(errorCode(await apply(workspace,[{op:'create',type:'text',text:'Still paused',x:0,y:0}]))).toBe('SESSION_PAUSED');
+    result(await workspace.invoke({command:'resume',args:{session:'e2e-agent'}}));
+    result(await apply(workspace,[{op:'create',type:'text',text:'Resumed with your permission.',x:180,y:180}]));
+    expect((await snapshot(workspace)).elements.some((element:any)=>element.text==='Resumed with your permission.')).toBe(true);
+    await workspace.screenshot('01-resumed-after-cancellation');
+  }finally{
+    await workspace.page.evaluate(()=>{const gate=(window as any).__e2eFontGate;if(gate){document.fonts.load=gate.original;gate.release?.();delete (window as any).__e2eFontGate}}).catch(()=>{});
+    await pending?.catch(()=>{});await queued?.catch(()=>{});
+  }
+});
+
+test('the final renderer load guard preserves edits made after switch approval',async({workspace})=>{
+  const drawing=await create(workspace,'Keep the latest edit');
+  const approved=await snapshot(workspace);
+  const changed=result(await apply(workspace,[{op:'create',ref:'human-work',type:'rectangle',x:220,y:180,width:200,height:100,label:'Keep this thought'}],approved));
+  const beforeRefusal=await snapshot(workspace);
+  expect(beforeRefusal.revision).toBeGreaterThan(approved.revision);
+  const candidate={
+    command:'load',
+    args:{drawing:{id:randomUUID(),path:path.join(workspace.drawingsDirectory,'Another drawing.excalidraw'),title:'Another drawing'},
+      epoch:randomUUID(),
+      scene:{type:'excalidraw',version:2,source:'integration-test',elements:[],appState:{viewBackgroundColor:'#ffffff'},files:{}},
+      previous:{document:approved.document,epoch:approved.epoch,revision:approved.revision}},
+  };
+  const refused=await internalSceneCommand(workspace,candidate);
+  expect(errorCode(refused)).toBe('STALE_REVISION');
+  const afterRefusal=await snapshot(workspace);
+  expect(afterRefusal.document).toBe(beforeRefusal.document);expect(afterRefusal.epoch).toBe(beforeRefusal.epoch);
+  expect(afterRefusal.revision).toBe(beforeRefusal.revision);expect(afterRefusal.elements).toEqual(beforeRefusal.elements);
+  const host=result(await workspace.invoke({command:'status'}));
+  expect(host.epoch).toBe(beforeRefusal.epoch);expect(host.active.path).toBe(drawing.path);
+  // Public clients cannot skip the file service by calling an internal load.
+  expect(errorCode(await workspace.invoke(candidate))).toBe('UNKNOWN_COMMAND');
+  const dismiss=workspace.page.getByRole('button',{name:'Dismiss message',exact:true});
+  if(await dismiss.isVisible())await dismiss.click();
+  result(await apply(workspace,[{op:'update',id:changed.created[0].id,backgroundColor:'#e5dbff',fillStyle:'solid'}]));
+  await workspace.screenshot('01-edits-preserved-after-stale-switch');
+  result(await workspace.cli('save',await target(workspace)));
+});
+
+test('settings and agent education stay open before any drawing exists',async({workspace})=>{
+  const page=workspace.page;
+  expect(result(await workspace.invoke({command:'status'})).active).toBeNull();
+  await page.getByRole('button',{name:'Agents',exact:true}).click();
+  await expect(page.getByRole('heading',{name:/Your agent.*The same canvas/})).toBeVisible();
+  await page.getByRole('button',{name:'Back to your space',exact:true}).click();
+  await expect(page.getByRole('heading',{name:'Your drawings',exact:true})).toBeVisible();
+  await workspace.screenshot('01-empty-library');
+  await page.getByRole('button',{name:'Settings',exact:true}).click();
+  await expect(page.getByRole('heading',{name:'Make yourself at home.'})).toBeVisible();
+  await page.getByRole('button',{name:'dark appearance',exact:true}).click();
+  await expect(page.locator('html')).toHaveAttribute('data-theme','dark');
+  await expect(page.getByRole('heading',{name:'Make yourself at home.'})).toBeVisible();
+  await expect(page.getByRole('button',{name:'dark appearance',exact:true})).toHaveAttribute('aria-pressed','true');
+  expect(result(await workspace.invoke({command:'status'})).active).toBeNull();
+  await workspace.screenshot('02-settings-without-a-drawing');
+  await page.getByRole('button',{name:/Keyboard & help/}).click();
+  await expect(page.getByRole('heading',{name:'Room to think.',exact:true})).toBeVisible();
+  await page.getByRole('button',{name:'Set up your agent',exact:false}).click();
+  await expect(page.getByRole('heading',{name:/Your agent.*The same canvas/})).toBeVisible();
+  // integration-status broadcasts metadata while no document is active. That
+  // must not redirect this education flow back to Welcome or Library.
+  result(await workspace.invoke({command:'integration-status'}));
+  await expect(page.getByRole('heading',{name:/Your agent.*The same canvas/})).toBeVisible();
+  await workspace.screenshot('03-agent-education-without-a-drawing');
 });

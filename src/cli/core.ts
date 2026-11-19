@@ -17,22 +17,24 @@ Example apply input (after obtaining live preconditions):
 \
 {
   "operations": [
-    {"op":"create","ref":"start","type":"rectangle","x":0,"y":0,"width":180,"height":90,"label":"Start"},
-    {"op":"create","ref":"finish","type":"rectangle","x":300,"y":0,"width":180,"height":90,"label":"Finish"},
+    {"op":"create","ref":"start","type":"rectangle","x":0,"y":0,"width":180,"height":90,"label":{"text":"Start","fontFamily":5,"fontSize":20},"strokeColor":"#6965db","backgroundColor":"#eeedff","fillStyle":"solid","roundness":{"type":3}},
+    {"op":"create","ref":"finish","type":"rectangle","x":300,"y":0,"width":180,"height":90,"label":"Finish","backgroundColor":"#ffffff","fillStyle":"solid","roundness":{"type":3}},
     {"op":"create","type":"arrow","from":"start","to":"finish","label":"next"}
   ]
 }
 \
 
-Update uses {"op":"update","id":"stable ID","x":120,"label":"Revised"}; delete uses {"op":"delete","id":"stable ID"}; group uses {"op":"group","ids":["id1","id2"]}. Refs exist only inside the submitted batch; use returned created IDs afterwards. Type-specific and styling fields are documented in apply --help and schema.
+Style and geometry fields go directly on each operation, for example strokeColor, backgroundColor, fillStyle, roughness, opacity, roundness and x/y/width/height. A nested style object is rejected. For sharp corners use roundness:null; rounded boxes use roundness:{"type":3}. Font IDs: 1 Virgil, 2 Helvetica, 3 Cascadia, 5 Excalifont, 6 Nunito, 7 Lilita One, 8 Comic Shanns, 9 Liberation Sans (Agent Sans fallback).
+
+Update uses {"op":"update","id":"stable ID","x":120,"label":{"text":"Revised","fontFamily":5,"fontSize":20}}; delete uses {"op":"delete","id":"stable ID"}; group uses {"op":"group","ids":["id1","id2"]}. Refs exist only inside the submitted batch: a later arrow from/to can use them. The receipt returns created entries with ref and stable id; use those stable IDs in subsequent batches. Type-specific and styling fields are documented in apply --help and schema.
 
 ## Preserve human work
 
-Target the returned document ID, never whichever window is focused. Inspect selection with view or snapshot for targeted edits. Keep the person's selection/viewport unless they ask you to focus changes. DOCUMENT_BUSY means the person is mid-edit: wait briefly, then inspect again. STALE_REVISION or EPOCH_MISMATCH requires a fresh snapshot and a newly considered batch. Do not force an old snapshot over current work.
+Target the returned document ID, never whichever window is focused. Inspect selection with snapshot --selection, groups with snapshot --group <group ID>, or named shapes with snapshot --ids <id1,id2>. A region rectangle can be supplied through --input; inspect schema for its shape. Use view only when you intend to change selection/viewport. Keep the person's selection/viewport unless they ask you to focus changes. DOCUMENT_BUSY means the person is mid-edit: wait briefly, then inspect again. STALE_REVISION or STALE_EPOCH requires a fresh snapshot and a newly considered batch. Do not force an old snapshot over current work. Moving a shape with a bent, elbow or rotated bound arrow can return UNSUPPORTED_OPERATION; the batch is refused without changes. Preserve that geometry and use the editor rather than repeatedly flattening or replacing its connectors.
 
 On OUTCOME_UNKNOWN, reconcile operation status --request-id <same ID> --document <id> --epoch <epoch> --json before replay. A restart changes the epoch and invalidates old mutation preconditions. Revert-last-agent-batch is available only while its post-revision is still current. Stop pauses that session's later mutations until resume; it does not undo applied edits.
 
 ## Privacy and completion
 
-Manual app use keeps files local. Content you read through the tool is handled by your agent provider. Export editable drawing data only when requested; ordinary image exports exclude it. No scene content goes in diagnostic logs. Finish with a real render inspection and a successful save receipt, or state precisely what remains unsaved/unverified.
+Manual app use keeps files local. Content you read through the tool is handled by your agent provider. Rendering/export supports --scale 0.1 through 4 and --no-background for transparency. Export editable drawing data with --embed-scene only when requested; ordinary image exports exclude it. No scene content goes in diagnostic logs. Finish with a real render inspection and a successful save receipt, or state precisely what remains unsaved/unverified.
 `;

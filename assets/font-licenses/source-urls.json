@@ -1,0 +1,15 @@
+{
+  "Assistant-OFL.txt": "https://raw.githubusercontent.com/google/fonts/cc5661d43cd4f9aad5567033a8e15ca28dc35c86/ofl/assistant/OFL.txt",
+  "Cascadia-OFL.txt": "https://raw.githubusercontent.com/microsoft/cascadia-code/0610f2df4356200adb93cb5bca2221b92ad6ee7e/LICENSE",
+  "Lilita-OFL.txt": "https://raw.githubusercontent.com/google/fonts/cc5661d43cd4f9aad5567033a8e15ca28dc35c86/ofl/lilitaone/OFL.txt",
+  "Nunito-OFL.txt": "https://raw.githubusercontent.com/google/fonts/cc5661d43cd4f9aad5567033a8e15ca28dc35c86/ofl/nunito/OFL.txt",
+  "Xiaolai-OFL.txt": "https://raw.githubusercontent.com/lxgw/kose-font/172d9dbe94ade82b5316e0989e3aa286b7041baf/OFL.txt",
+  "Liberation-LICENSE.txt": "https://raw.githubusercontent.com/liberationfonts/liberation-1.7-fonts/6cc4767aaec06038eda690ce599130e3b5cc8a49/License.txt",
+  "Liberation-GPL-2.0.txt": "https://raw.githubusercontent.com/liberationfonts/liberation-1.7-fonts/6cc4767aaec06038eda690ce599130e3b5cc8a49/COPYING",
+  "Excalidraw-MIT.txt": "https://raw.githubusercontent.com/excalidraw/excalidraw/a2ec2889babf7d2295469c6d90ebe77fae57df84/LICENSE",
+  "Excalifont-OFL.txt": "https://github.com/excalidraw/excalidraw/blob/a2ec2889babf7d2295469c6d90ebe77fae57df84/packages/excalidraw/fonts/Excalifont/index.ts",
+  "ComicShanns-MIT.txt": "https://github.com/excalidraw/excalidraw/blob/a2ec2889babf7d2295469c6d90ebe77fae57df84/packages/excalidraw/fonts/ComicShanns/index.ts",
+  "Virgil-OFL.txt": "https://github.com/excalidraw/excalidraw/blob/a2ec2889babf7d2295469c6d90ebe77fae57df84/packages/excalidraw/fonts/Virgil/Virgil-Regular.woff2",
+  "Xiaolai-source-notice.txt": "https://github.com/excalidraw/excalidraw/blob/a2ec2889babf7d2295469c6d90ebe77fae57df84/packages/excalidraw/fonts/Xiaolai/index.ts",
+  "AgentSans-OFL.txt": "https://github.com/liberationfonts/liberation-fonts/blob/4b0192046158094654e865245832c66d2104219e/LICENSE"
+}

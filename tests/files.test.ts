@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { promises as fs } from 'node:fs';
+import { constants, promises as fs } from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
 import { FileStore, pathSuggest } from '../src/main/files.js';
@@ -185,4 +185,89 @@ test('external watcher status is read-only across outside changes, own save and 
   await fs.unlink(drawing.path);
   assert.deepEqual(await store.externalStatus(), { changed: false, missing: true });
   await assert.rejects(store.save(edited()), code('FILE_MISSING'));
+});
+
+
+test('native drawing files omit deleted confidential shapes and unreferenced image resources', async t => {
+  const { store, root } = await fixture(t);
+  const original = await store.create({ title: 'Private source' });
+  const liveImage = { id: 'live-binary', mimeType: 'image/png', dataURL: 'data:image/png;base64,TElWRS1JTUFHRQ==', created: 1 };
+  const deletedImage = { id: 'deleted-binary', mimeType: 'image/png', dataURL: 'data:image/png;base64,REVFVElORy1TRUNSRVQ=', created: 1 };
+  const orphanImage = { id: 'orphan-binary', mimeType: 'image/png', dataURL: 'data:image/png;base64,T1JQSEFOLVNFQ1JFVA==', created: 1 };
+  const scene = {
+    ...blankScene(),
+    elements: [
+      { id: 'visible-text', type: 'text', text: 'Keep this live label', isDeleted: false },
+      { id: 'deleted-text', type: 'text', text: 'DELETED CONFIDENTIAL TEXT', originalText: 'DELETED CONFIDENTIAL TEXT', isDeleted: true },
+      { id: 'visible-image', type: 'image', fileId: 'live-binary', isDeleted: false },
+      { id: 'deleted-image', type: 'image', fileId: 'deleted-binary', isDeleted: true },
+      { id: 'visible-rectangle', type: 'rectangle', x: 10, y: 20, width: 40, height: 30 },
+    ],
+    files: { 'live-binary': liveImage, 'deleted-binary': deletedImage, 'orphan-binary': orphanImage },
+  };
+  const assertPrivateFile = async (file: string) => {
+    const bytes = await fs.readFile(file, 'utf8'), saved = JSON.parse(bytes);
+    assert.deepEqual(saved.elements, [scene.elements[0], scene.elements[2], scene.elements[4]]);
+    assert.deepEqual(saved.files, { 'live-binary': liveImage });
+    assert.equal(bytes.includes('DELETED CONFIDENTIAL TEXT'), false);
+    assert.equal(bytes.includes(deletedImage.dataURL), false);
+    assert.equal(bytes.includes(orphanImage.dataURL), false);
+    assert.equal(bytes.includes(liveImage.dataURL), true);
+  };
+  await store.save(scene);
+  await assertPrivateFile(original.drawing.path);
+  // Saving must not mutate the live scene: native Undo still owns its history.
+  assert.equal(scene.elements.length, 5);
+  assert.equal(Object.keys(scene.files).length, 3);
+  const duplicated = await store.duplicate(scene);
+  await assertPrivateFile(duplicated.path);
+  const savedAs = await store.saveAs(scene, path.join(root, 'Private saved as.excalidraw'));
+  await assertPrivateFile(savedAs.path);
+  await store.writeRecovery(scene, 12);
+  const recovered = await store.restoreRecovery(savedAs.id);
+  await assertPrivateFile(recovered.drawing.path);
+  // Even deleted future types still reject rather than silently filtering away.
+  await assert.rejects(store.save({ ...scene, elements: [...scene.elements, { id: 'future-deleted', type: 'stickynote', isDeleted: true }] }), code('UNSUPPORTED_FORMAT'));
+});
+
+
+test('read-only source refuses atomic replacement and move but permits saving a copy', { skip: process.platform === 'win32' ? 'Unix mode-bit contract; native Windows ACL test remains separate' : false }, async t => {
+  const { store, root } = await fixture(t);
+  const { drawing } = await store.create({ title: 'Read only' });
+  const original = await fs.readFile(drawing.path, 'utf8');
+  await fs.chmod(drawing.path, 0o400);
+  await assert.rejects(store.save(edited()), code('READ_ONLY'));
+  await assert.rejects(store.saveAs(edited(), drawing.path), code('READ_ONLY'));
+  await assert.rejects(store.move(path.join(root, 'Moved.excalidraw')), code('READ_ONLY'));
+  assert.equal(await fs.readFile(drawing.path, 'utf8'), original);
+  assert.equal(store.active?.path, drawing.path);
+  const saved = await store.saveAs(edited(), path.join(root, 'Writable copy.excalidraw'));
+  assert.equal(JSON.parse(await fs.readFile(saved.path, 'utf8')).elements.length, 1);
+  assert.equal(await fs.readFile(drawing.path, 'utf8'), original);
+});
+
+test('post-publication directory fsync failure reports uncertain outcome instead of claiming original retained', async t => {
+  const { store } = await fixture(t);
+  const { drawing } = await store.create({ title: 'Durability failure' });
+  const originalOpen = fs.open.bind(fs);
+  const replacement = t.mock.method(fs, 'open', async (...args: Parameters<typeof fs.open>) => {
+    const handle = await originalOpen(...args);
+    if (args[0] === path.dirname(drawing.path) && args[1] === constants.O_RDONLY) {
+      return { close: () => handle.close(), sync: async () => { throw Object.assign(new Error('Injected directory sync failure'), { code: 'EIO' }); } } as any;
+    }
+    return handle;
+  });
+  await assert.rejects(store.save(edited()), (error: any) => {
+    assert.equal(error.code, 'WRITE_OUTCOME_UNKNOWN');
+    assert.equal(error.details.path, drawing.path);
+    assert.equal(error.details.stage, 'published');
+    assert.match(error.message, /Inspect the file before retrying/);
+    return true;
+  });
+  replacement.mock.restore();
+  // Rename actually completed. A blind retry is refused until reinspection.
+  assert.equal(JSON.parse(await fs.readFile(drawing.path, 'utf8')).elements.length, 1);
+  await assert.rejects(store.save(edited()), code('FILE_CONFLICT'));
+  await store.open(drawing.path);
+  await store.save(edited());
 });

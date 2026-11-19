@@ -27,10 +27,11 @@ function persistentState(state: Partial<AppState>): Scene['appState'] {
   };
 }
 function fingerprint(scene: Scene): string {
+  const liveFiles=new Set(scene.elements.filter(e=>!e.isDeleted&&e.type==='image').map(e=>e.fileId));
   return canonical({ ...scene, elements: scene.elements.filter(e => !e.isDeleted).map(e => {
     const { version, versionNonce, updated, index, ...content } = e;
     return content;
-  }), files: Object.fromEntries(Object.entries(scene.files).map(([id, file]) => [id, {id, mimeType:file.mimeType, dataURL:file.dataURL}])) });
+  }), files: Object.fromEntries(Object.entries(scene.files).filter(([id])=>liveFiles.has(id)).map(([id, file]) => [id, {id, mimeType:file.mimeType, dataURL:file.dataURL}])) });
 }
 function sceneFrom(api: ExcalidrawImperativeAPI): Scene {
   const elements = clone(api.getSceneElementsIncludingDeleted()) as any[];
@@ -79,12 +80,13 @@ function semanticBatch(current: readonly Element[], operations: Operation[]) {
     const measured = convertToExcalidrawElements([skeleton as any],{regenerateIds:false})[0] as any;
     return {text,originalText:text,width:measured.width,height:measured.height};
   };
-  const updateLabel = (container: any, text: string) => {
+  const updateLabel = (container: any, value: any) => {
+    const {text,...labelStyle}=value;
     const bound = elements.find(e => !e.isDeleted && e.type === 'text' && e.containerId === container.id);
     if (['rectangle','ellipse','diamond'].includes(container.type)) {
       // The converter owns text measurement, wrapping and container growth. Reuse
       // the bound text ID so references remain stable when changing a label.
-      const skeleton = {...container,boundElements:(container.boundElements||[]).filter((entry:any)=>entry.type!=='text'),label:{...(bound?pick(bound,['id','fontSize','fontFamily','textAlign','verticalAlign']):{}),text}};
+      const skeleton = {...container,boundElements:(container.boundElements||[]).filter((entry:any)=>entry.type!=='text'),label:{...(bound?pick(bound,['id','fontSize','fontFamily','textAlign','verticalAlign']):{}),...labelStyle,text}};
       const converted = convertToExcalidrawElements([skeleton], {regenerateIds:false});
       for (const el of converted) {
         const before = elements.find(e => e.id === el.id);
@@ -95,7 +97,7 @@ function semanticBatch(current: readonly Element[], operations: Operation[]) {
       return;
     }
     if (!bound) {
-      const converted = convertToExcalidrawElements([{...container,label:{text}}], {regenerateIds:false});
+      const converted = convertToExcalidrawElements([{...container,label:{...labelStyle,text}}], {regenerateIds:false});
       for (const el of converted) {
         const before = elements.find(e => e.id === el.id);
         if (before) replace(before,el);
@@ -103,9 +105,9 @@ function semanticBatch(current: readonly Element[], operations: Operation[]) {
       }
       return;
     }
-    const metrics = textMetrics(text,bound);
+    const metrics = textMetrics(text,{...bound,...labelStyle});
     const [cx,cy] = center(container);
-    replace(bound,{...metrics,x:cx-metrics.width/2,y:cy-metrics.height/2});
+    replace(bound,{...labelStyle,...metrics,x:cx-metrics.width/2,y:cy-metrics.height/2});
   };
   for (const op of operations) {
     if (!op || typeof op !== 'object') throw new AppError('INVALID_ARGUMENT','Each operation must be an object.');
@@ -151,7 +153,7 @@ function semanticBatch(current: readonly Element[], operations: Operation[]) {
       } else if(original.type==='text'&&(props.fontSize!==undefined||props.fontFamily!==undefined)) Object.assign(props,textMetrics(original.text,{...original,...props}));
       const next = replace(original,props);
       if(geometryKeys.some(k=>props[k]!==undefined))changedGeometry.add(original.id);
-      if(op.label!==undefined)updateLabel(next,label(op.label).text);
+      if(op.label!==undefined)updateLabel(next,label(op.label));
     } else if (op.op === 'delete') {
       if(typeof op.id!=='string')throw new AppError('INVALID_ARGUMENT','Delete requires an ID.');
       const element=lookup(op.id);const ids=new Set([element.id,...elements.filter(e=>e.containerId===element.id).map(e=>e.id)]);
@@ -172,7 +174,10 @@ function semanticBatch(current: readonly Element[], operations: Operation[]) {
   for (const id of changedGeometry) {
     const container=elements.find(e=>e.id===id&&!e.isDeleted);if(!container)continue;
     for(const bound of elements.filter(e=>!e.isDeleted&&e.type==='text'&&e.containerId===id)){
-      const [cx,cy]=center(container);replace(bound,{x:cx-bound.width/2,y:cy-bound.height/2});
+      if(['rectangle','ellipse','diamond'].includes(container.type)){
+        const skeleton={...container,boundElements:(container.boundElements||[]).filter((entry:any)=>entry.type!=='text'),label:{id:bound.id,text:bound.text,...pick(bound,['fontSize','fontFamily','textAlign','verticalAlign'])}};
+        for(const repaired of convertToExcalidrawElements([skeleton],{regenerateIds:false})){const original=elements.find(e=>e.id===repaired.id);if(original)replace(original,repaired)}
+      }else{const [cx,cy]=center(container);replace(bound,{x:cx-bound.width/2,y:cy-bound.height/2});}
     }
   }
   // Use the editor's own binding helper through the public converter for straight
@@ -201,6 +206,7 @@ export function createController(api: ExcalidrawImperativeAPI, bridge: Bridge) {
   let documentId='',epoch='',revision=0,savedFingerprint='',lastFingerprint='',loading=false;
   let latestScene: Scene=blankScene();
   let composition=false,pointer=false,lastImport=0;
+  const pausedSessions=new Set<string>(),sessionGenerations=new Map<string,number>();
   const receiptCache=new Map<string,{payload:string;reply:Reply}>();
   const captures=new Map<number,string>();
   let lastBatch:{before:Scene;afterRevision:number}|null=null;
@@ -228,6 +234,7 @@ export function createController(api: ExcalidrawImperativeAPI, bridge: Bridge) {
     if(request.document&&request.document!==documentId)throw new AppError('DOCUMENT_NOT_ACTIVE','This command targets a drawing that is not active. Open it explicitly first.');
   }
   function precondition(request:Request){
+    if(pausedSessions.has(request.session||'default'))throw new AppError('SESSION_PAUSED','This agent session was stopped. Resume explicitly before editing.');
     ensureDocument(request);sync();
     if(!request.document||!request.epoch||!Number.isInteger(request.expectedRevision)||!request.requestId)throw new AppError('PRECONDITION_REQUIRED','Mutations require document, epoch, expectedRevision and a unique requestId. Inspect snapshot first.');
     if(request.epoch!==epoch)throw new AppError('STALE_EPOCH','This drawing was reopened or the app restarted. Inspect it again.',receipt());
@@ -270,6 +277,7 @@ export function createController(api: ExcalidrawImperativeAPI, bridge: Bridge) {
     return success(receipt({applied:true,created,stage:'read-back',elementCount:api.getSceneElements().length}));
   }
   async function mutation(request:Request){
+    const session=request.session||'default',generation=sessionGenerations.get(session)||0;
     const payload=canonical({...request,requestId:undefined});
     const prior=request.requestId?receiptCache.get(request.requestId):null;
     if(prior){if(prior.payload!==payload)throw new AppError('REQUEST_ID_REUSED','This requestId was used with a different command or payload.');return prior.reply}
@@ -291,6 +299,7 @@ export function createController(api: ExcalidrawImperativeAPI, bridge: Bridge) {
       if(!name)throw new AppError('INVALID_ARGUMENT',`Font family ${family} is not supported.`);
       await document.fonts.load(`20px "${name}", Xiaolai`,text);
     }));
+    if((sessionGenerations.get(session)||0)!==generation)throw new AppError('OPERATION_CANCELLED','This pending batch was stopped before it could be applied.');
     precondition(request);
     const args=request.args||{};let reply:Reply;
     if(request.command==='revert-last-agent-batch'){
@@ -318,6 +327,8 @@ export function createController(api: ExcalidrawImperativeAPI, bridge: Bridge) {
   async function handle(request:Request):Promise<Reply>{
     try{
       const args=request.args||{};
+      if(request.command==='session-pause'){const name=args.session||'default';pausedSessions.add(name);sessionGenerations.set(name,(sessionGenerations.get(name)||0)+1);return success({paused:true});}
+      if(request.command==='session-resume'){pausedSessions.delete(args.session||'default');return success({paused:false});}
       if(request.command==='load'){await setIdentity(args.drawing.id,args.epoch,args.scene,args.previous);return success(receipt())}
       ensureDocument(request);if(loading)throw new AppError('APP_STARTING','The drawing is still loading.');sync();
       if(request.command==='rebind'){documentId=args.document;epoch=args.epoch||uuid();receiptCache.clear();lastBatch=null;return success(receipt())}
@@ -338,7 +349,7 @@ export function createController(api: ExcalidrawImperativeAPI, bridge: Bridge) {
         if(args.group)elements=elements.filter(e=>e.groupIds.includes(args.group));
         if(args.region){const {x,y,width,height}=args.region;[x,y,width,height].forEach((n,i)=>finite(n,['x','y','width','height'][i]));elements=elements.filter(e=>e.x+e.width>=x&&e.x<=x+width&&e.y+e.height>=y&&e.y<=y+height)}
         const offset=Number.isInteger(args.offset)&&args.offset>=0?args.offset:0;const limit=Number.isInteger(args.limit)&&args.limit>0?Math.min(args.limit,5000):500;
-        const page=elements.slice(offset,offset+limit);return success(receipt({elements:clone(args.compact?page.map(e=>pick(e,['id','type','x','y','width','height','text','containerId','groupIds','startBinding','endBinding','boundElements','strokeColor','backgroundColor'])):page),selection:Object.keys(state.selectedElementIds),total:elements.length,offset,complete:offset===0&&page.length===elements.length,nextOffset:offset+page.length<elements.length?offset+page.length:null}));
+        const page=elements.slice(offset,offset+limit);return success(receipt({interaction:isBusy()?'busy':'idle',pendingImage:!!state.pendingImageElementId,elements:clone(args.compact?page.map(e=>pick(e,['id','type','x','y','width','height','text','containerId','groupIds','startBinding','endBinding','boundElements','strokeColor','backgroundColor'])):page),selection:Object.keys(state.selectedElementIds),total:elements.length,offset,complete:offset===0&&page.length===elements.length,nextOffset:offset+page.length<elements.length?offset+page.length:null}));
       }
       if(request.command==='view'){
         if(args.ids){if(!Array.isArray(args.ids))throw new AppError('INVALID_ARGUMENT','ids must be an array.');const ids=new Set(args.ids);api.updateScene({appState:{selectedElementIds:Object.fromEntries([...ids].map(id=>[id,true]))},captureUpdate:CaptureUpdateAction.NEVER});if(args.focus)api.scrollToContent(api.getSceneElements().filter(e=>ids.has(e.id)),{fitToContent:true,animate:false})}
@@ -362,9 +373,10 @@ export function createController(api: ExcalidrawImperativeAPI, bridge: Bridge) {
         }
         if(format!=='png')throw new AppError('INVALID_ARGUMENT','Format must be png, svg or excalidraw.');
         const scale=args.scale??1;if(typeof scale!=='number'||scale<.1||scale>4)throw new AppError('INVALID_ARGUMENT','Export scale must be between 0.1 and 4.');
+        const pixelWidth=(bounds[2]-bounds[0]+40)*scale,pixelHeight=(bounds[3]-bounds[1]+40)*scale;if(pixelWidth>16384||pixelHeight>16384||pixelWidth*pixelHeight>64000000)throw new AppError('RENDER_TOO_LARGE','This image would be too large. Reduce scale, render a selection, or export SVG.');
         const blob=await exportToBlob({elements:elements as any,appState:appState as any,files:captured.files,mimeType:'image/png',exportPadding:20,getDimensions:(width:number,height:number)=>({width:width*scale,height:height*scale,scale})});
         const bytes=new Uint8Array(await blob.arrayBuffer());let str='';for(const byte of bytes)str+=String.fromCharCode(byte);
-        return success({...capturedReceipt,data:btoa(str),mime:'image/png',bounds,scale});
+        return success({...capturedReceipt,data:btoa(str),mime:'image/png',bounds,scale,transform:{sceneOrigin:[bounds[0]-20,bounds[1]-20],scale},width:Math.ceil(pixelWidth),height:Math.ceil(pixelHeight)});
       }
       throw new AppError('UNKNOWN_COMMAND',`Unknown scene command ${request.command}.`);
     }catch(error){return failure(error)}

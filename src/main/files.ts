@@ -18,7 +18,16 @@ function slug(value: string, fallback = 'Untitled') {
   return /^(con|prn|aux|nul|com[1-9]|lpt[1-9])(?:\.|$)/i.test(safe) ? `_${safe}` : safe;
 }
 function titleFor(file: string) { return path.basename(file, path.extname(file)); }
-function sceneBytes(scene: Scene): string { return JSON.stringify(validateScene(scene), null, 2) + '\n'; }
+export function sceneBytes(scene: Scene): string {
+  // Validate before filtering: an unknown future type must never disappear just
+  // because it is marked deleted. Match local serializeAsJSON's privacy rule
+  // without loading the browser-only editor package into the native host.
+  const validated = validateScene(scene);
+  const elements = validated.elements.filter(element => !element.isDeleted);
+  const referenced = new Set(elements.filter(element => element.type === 'image' && typeof element.fileId === 'string' && element.fileId).map(element => element.fileId));
+  const files = Object.fromEntries(Object.entries(validated.files).filter(([id]) => referenced.has(id)));
+  return JSON.stringify({ ...validated, elements, files }, null, 2) + '\n';
+}
 function fingerprint(bytes: string | Buffer) { return createHash('sha256').update(bytes).digest('hex'); }
 function copy<T>(value: T): T { return JSON.parse(JSON.stringify(value)); }
 function isRecord(value: unknown): value is Record<string, any> { return !!value && typeof value === 'object' && !Array.isArray(value); }
@@ -108,6 +117,7 @@ export class FileStore {
       try { mode = (await fs.stat(target)).mode & 0o777; } catch (error) { if (!missingError(error)) throw error; }
     }
     const handle = await fs.open(temp, 'wx', mode);
+    let published = false;
     try {
       await handle.writeFile(bytes, 'utf8');
       await handle.sync();
@@ -115,8 +125,9 @@ export class FileStore {
       if (exclusive) {
         // Hard-linking a completed sibling file is exclusive and never replaces an existing file.
         await fs.link(temp, target);
+        published = true;
         await fs.unlink(temp);
-      } else await fs.rename(temp, target);
+      } else { await fs.rename(temp, target); published = true; }
       // Persist the directory entry on filesystems which expose directory fsync.
       let directory;
       try { directory = await fs.open(path.dirname(target), constants.O_RDONLY); await directory.sync(); }
@@ -125,6 +136,7 @@ export class FileStore {
     } catch (error) {
       await handle.close().catch(() => {});
       await fs.unlink(temp).catch(() => {});
+      if (published) throw new AppError('WRITE_OUTCOME_UNKNOWN', `The new file was published at ${target}, but its durability could not be confirmed. Inspect the file before retrying.`, { path: target, stage: 'published', cause: (error as Error).message });
       throw error;
     }
   }
@@ -159,6 +171,20 @@ export class FileStore {
     catch (error) { if (missingError(error)) throw new AppError('FILE_MISSING', 'The original file is missing. Save a copy or locate it before continuing.'); throw error; }
     const expected = this.hashes.get(drawing.id);
     if (!expected || fingerprint(bytes) !== expected) throw new AppError('FILE_CONFLICT', 'This drawing changed outside the app. Save your work as a copy to preserve both versions.', { path: drawing.path });
+  }
+
+  private async assertWritable(drawing: Drawing): Promise<void> {
+    const metadata = await fs.stat(drawing.path);
+    // Atomic replacement depends on directory permission, but a user marking a
+    // source read-only must still be respected, including when running as root.
+    if (process.platform !== 'win32' && (metadata.mode & 0o222) === 0) {
+      throw new AppError('READ_ONLY', 'This drawing is read-only. Save a copy at another location.', { path: drawing.path });
+    }
+    try { await fs.access(drawing.path, constants.W_OK); }
+    catch (error) {
+      if (['EACCES', 'EPERM', 'EROFS'].includes((error as NodeJS.ErrnoException).code || '')) throw new AppError('READ_ONLY', 'This drawing is read-only. Save a copy at another location.', { path: drawing.path });
+      throw error;
+    }
   }
 
   async list(): Promise<Drawing[]> {
@@ -219,6 +245,7 @@ export class FileStore {
     return this.run(async () => {
       const drawing = this.current(id);
       await this.assertUnchanged(drawing);
+      await this.assertWritable(drawing);
       await this.atomicWrite(drawing.path, bytes);
       this.hashes.set(drawing.id, fingerprint(bytes));
       await this.discardRecoveryNow(drawing.id);
@@ -233,7 +260,7 @@ export class FileStore {
       const original = this.current(id);
       const target = await this.canonical(withExtension(file), true);
       if (this.samePath(target, original.path)) {
-        await this.assertUnchanged(original); await this.atomicWrite(target, bytes);
+        await this.assertUnchanged(original); await this.assertWritable(original); await this.atomicWrite(target, bytes);
         this.hashes.set(original.id, fingerprint(bytes)); await this.discardRecoveryNow(original.id);
         return copy(original);
       }
@@ -267,6 +294,7 @@ export class FileStore {
       const drawing = this.current(id), target = await this.canonical(withExtension(file), true);
       if (this.samePath(target, drawing.path)) return copy(drawing);
       await this.assertUnchanged(drawing);
+      await this.assertWritable(drawing);
       const source = drawing.path;
       // Exclusive copy + verification works across volumes and does not overwrite a target.
       try { await fs.copyFile(source, target, constants.COPYFILE_EXCL); }

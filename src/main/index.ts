@@ -7,7 +7,7 @@ import path from 'node:path';
 import os from 'node:os';
 import {fileURLToPath,pathToFileURL} from 'node:url';
 import {integrationStatus,installLocalCli,installSkill} from './integrations.js';
-import {FileStore} from './files.js';
+import {FileStore,sceneBytes} from './files.js';
 import {AppError,failure,success,type Reply,type Request,type Scene,type HostState} from '../shared/types.js';
 const here=path.dirname(fileURLToPath(import.meta.url));
 app.setName('agent-excalidraw');
@@ -19,9 +19,11 @@ let approvedTransition:any=null;
 let watcher:FSWatcher|undefined,watchedPath='',external={changed:false,missing:false},saveError=false;
 let currentRevision=0,epoch=randomUUID(),errorMessage:string|null=null;
 let lastUsed:number|null=null,working=false,agentSession:string|null=null;
+const generations=new Map<string,number>();
 const paused=new Set<string>(),pending=new Map<string,{resolve:(r:Reply)=>void;timer:ReturnType<typeof setTimeout>}>();
 const receipts=new Map<string,{hash:string;reply:Reply}>();
 let recoveryTimer:ReturnType<typeof setTimeout>|undefined,lastScene:Scene|undefined;
+let initializationResolve:()=>void;const initializationPromise=new Promise<void>(resolve=>initializationResolve=resolve);
 let readyResolve:()=>void;const readyPromise=new Promise<void>(resolve=>readyResolve=resolve);
 const dataDir=app.getPath('userData');
 const endpoint=path.join(dataDir,'endpoint.json');
@@ -39,7 +41,7 @@ async function guard(fromAgent=false):Promise<string|undefined>{
  const result=await dialog.showMessageBox(window,{type:'question',message:`Save changes to “${store.active?.title}”?`,detail:'Your drawing has unsaved changes.',buttons:['Save','Don’t save','Cancel'],defaultId:0,cancelId:2,noLink:true});
  if(result.response===2)throw new AppError('CANCELLED','The drawing was kept open.');
  if(result.response===0){await save();const live=await capture();if((live as any).dirty)throw new AppError('DOCUMENT_CHANGED','New edits arrived while saving. Save those changes before switching.');approvedTransition={document:store.active!.id,epoch,revision:live.revision};return;}
- const live=await capture();approvedTransition={document:store.active!.id,epoch,revision:live.revision};return store.active?.id;
+ const live=await capture();if(!approvedTransition||live.revision!==approvedTransition.revision||epoch!==approvedTransition.epoch||(live as any).busy)throw new AppError('DOCUMENT_CHANGED','The drawing changed while the dialog was open. Review the new changes before discarding.');return store.active?.id;
 }
 async function switchDrawing(factory:()=>Promise<{drawing:any;scene:Scene}>,fromAgent=false){const discard=await guard(fromAgent),previous=store.active;clearTimeout(recoveryTimer);try{const result=await activate(await factory());if(discard)await store.discardRecovery(discard);return result}catch(e){store.active=previous;if(previous){try{const live=await capture();dirty=!!(live as any).dirty;currentRevision=live.revision;lastScene=live.scene;if(dirty)await store.writeRecovery(live.scene,live.revision)}catch{errorMessage='The editor could not restore its previous drawing. Your saved file and recovery copies are unchanged.';}}await broadcast();throw e}}
 async function activate(result:{drawing:any;scene:Scene}){loading=true;clearTimeout(recoveryTimer);try{const nextEpoch=randomUUID();await scene({command:'load',args:{...result,epoch:nextEpoch,previous:approvedTransition}});epoch=nextEpoch;currentRevision=0;dirty=false;errorMessage=null;saveError=false;lastScene=result.scene;await broadcast();return {document:result.drawing.id,drawing:result.drawing,path:result.drawing.path,epoch,revision:0}}finally{loading=false}}
@@ -47,6 +49,7 @@ const mutationCommands=new Set(['apply','layout','revert-last-agent-batch']);
 async function execute(request:Request,fromAgent=false):Promise<any>{const args=request.args||{};const command=request.command;if(!command||typeof command!=='string')throw new AppError('INVALID_REQUEST','A command is required.');if(request.document&&request.document!==store.active?.id&&!['open','list','status'].includes(command))throw new AppError('DOCUMENT_NOT_ACTIVE','This document is not active. Open it explicitly before editing.');if(fromAgent){agentSession=request.session||'default';if(mutationCommands.has(command)&&paused.has(agentSession))throw new AppError('SESSION_PAUSED','This agent session was stopped. Resume explicitly before editing.');}
  if(fromAgent&&['save','save-as','move','duplicate','view','render','export','reveal'].includes(command)){if(!request.document||!request.epoch)throw new AppError('PRECONDITION_REQUIRED','This command requires document and epoch from a current snapshot.');if(request.document!==store.active?.id||request.epoch!==epoch)throw new AppError('STALE_EPOCH','The target drawing changed or was reopened. Inspect it again.');}
  switch(command){
+ case'dismiss-error':errorMessage=null;await broadcast();return {};
  case'status':{const s=state();s.recovery=await store.recoveries();return {...s,epoch,revision:currentRevision,protocol:1}}
  case'integration-status':return integrationStatus();
  case'install-cli':return installLocalCli();
@@ -57,6 +60,7 @@ async function execute(request:Request,fromAgent=false):Promise<any>{const args=
  case'open':{const file=args.path||((await dialog.showOpenDialog(window,{properties:['openFile'],filters:[{name:'Excalidraw drawing',extensions:['excalidraw']}]})).filePaths[0]);if(!file)throw new AppError('CANCELLED','No drawing selected.');return switchDrawing(()=>store.open(file),fromAgent)}
  case'save':return save();
  case'reload':{if(!store.active)throw new AppError('NO_DOCUMENT','Open a drawing first.');const result=await dialog.showMessageBox(window,{type:'warning',message:'Reload the version on disk?',detail:'This discards unsaved edits in this window. Save a copy first if you want to keep them.',buttons:['Reload file','Cancel'],defaultId:1,cancelId:1});if(result.response!==0)throw new AppError('CANCELLED','Your drawing is unchanged.');const live=await capture();approvedTransition={document:store.active.id,epoch,revision:live.revision};return activate(await store.open(store.active.path));}
+ case'operation-status':{const key=args.requestId||request.requestId;const receipt=key?receipts.get(key):undefined;if(receipt)return {status:'completed',reply:receipt.reply,epoch};return scene({...request,document:store.active?.id});}
  case'shape-library-get':try{return JSON.parse(await readFile(path.join(dataDir,'shape-library.json'),'utf8'))}catch{return []}
  case'shape-library-set':await writeFile(path.join(dataDir,'shape-library.json'),JSON.stringify(args.items));return {};
  case'save-as':{const file=args.path||(await dialog.showSaveDialog(window,{defaultPath:store.active?.path,filters:[{name:'Excalidraw drawing',extensions:['excalidraw']}]})).filePath;if(!file)throw new AppError('CANCELLED','No destination selected.');return save(file)}
@@ -74,18 +78,19 @@ async function execute(request:Request,fromAgent=false):Promise<any>{const args=
  case'recovery-list':return {recovery:await store.recoveries()};
  case'recovery-restore':return switchDrawing(()=>store.restoreRecovery(args.id),fromAgent);
  case'recovery-discard':await store.discardRecovery(args.id);await broadcast();return {};
- case'stop':paused.add(args.session||agentSession||'default');await broadcast();return {paused:true,message:'Further changes from this session are paused. Applied changes remain on the canvas.'};
- case'resume':paused.delete(args.session||request.session||agentSession||'default');await broadcast();return {paused:false};
- case'export':case'render':{if(command==='export'&&args.format==='excalidraw'){const captured=await capture();const output=args.output||(await dialog.showSaveDialog(window,{defaultPath:store.active?.title+'.excalidraw'})).filePath;if(!output)throw new AppError('CANCELLED','Export cancelled.');await writeFile(output,JSON.stringify(captured.scene,null,2),{flag:'wx'});return {path:output,revision:captured.revision}}const rendered=await scene({...request,command:'render'});const format=args.format==='svg'?'svg':'png';const output=args.output||(command==='export'?(await dialog.showSaveDialog(window,{defaultPath:(store.active?.title||'drawing')+'.'+format})).filePath:path.join(dataDir,'previews',`${store.active?.id}-${rendered.revision}-${randomUUID().slice(0,8)}.${format}`));if(!output)throw new AppError('CANCELLED','Export cancelled.');await mkdir(path.dirname(output),{recursive:true});await writeFile(output,Buffer.from(rendered.data,'base64'),{flag:'wx'});return {path:output,mime:rendered.mime,revision:rendered.revision,document:store.active?.id}}
+ case'stop':{const name=args.session||agentSession||'default';paused.add(name);generations.set(name,(generations.get(name)||0)+1);if(store.active)await scene({command:'session-pause',args:{session:name}});await broadcast();return {paused:true,message:'Pending changes were stopped. Applied changes remain on the canvas.'};}
+ case'resume':{const name=args.session||request.session||agentSession||'default';paused.delete(name);if(store.active)await scene({command:'session-resume',args:{session:name}});await broadcast();return {paused:false};}
+ case'export':case'render':{if(command==='export'&&args.format==='excalidraw'){const captured=await capture();const output=args.output||(await dialog.showSaveDialog(window,{defaultPath:store.active?.title+'.excalidraw'})).filePath;if(!output)throw new AppError('CANCELLED','Export cancelled.');await writeFile(output,sceneBytes(captured.scene),{flag:'wx'});return {path:output,revision:captured.revision}}const rendered=await scene({...request,command:'render'});const format=args.format==='svg'?'svg':'png';const output=args.output||(command==='export'?(await dialog.showSaveDialog(window,{defaultPath:(store.active?.title||'drawing')+'.'+format})).filePath:path.join(dataDir,'previews',`${store.active?.id}-${rendered.revision}-${randomUUID().slice(0,8)}.${format}`));if(!output)throw new AppError('CANCELLED','Export cancelled.');await mkdir(path.dirname(output),{recursive:true});await writeFile(output,Buffer.from(rendered.data,'base64'),{flag:'wx'});return {path:output,mime:rendered.mime,revision:rendered.revision,document:store.active?.id,epoch:rendered.epoch,bounds:rendered.bounds,scale:rendered.scale||1,width:rendered.width,height:rendered.height,transform:rendered.transform}}
  case'window-library':window.webContents.send('ui-action','library');return {};
  case'update-check':{const response=await fetch('https://api.github.com/repos/ralfboltshauser/agent-excalidraw/releases/latest',{headers:{Accept:'application/vnd.github+json'}});if(response.status===404)return {available:false,message:'No public release has been published yet.'};if(!response.ok)throw new AppError('UPDATE_FAILED','Could not check releases. Try again later.');const release=await response.json() as any;return {version:release.tag_name,url:release.html_url,available:release.tag_name!=='v'+app.getVersion()}}
+ case'open-notices':await shell.openPath(path.resolve(here,'../THIRD_PARTY_NOTICES.md'));return {};
  case'open-releases':await shell.openExternal('https://github.com/ralfboltshauser/agent-excalidraw/releases');return {};
  case'quit':{const discard=await guard(fromAgent);if(discard)await store.discardRecovery(discard);quitting=true;app.quit();return {};}
- default:if(!store.active)throw new AppError('NO_DOCUMENT','Create or open a drawing first.');working=mutationCommands.has(command);await broadcast();try{return await scene({...request,document:store.active.id})}finally{working=false;await broadcast()}
+ default:if(!['snapshot','apply','layout','view','revert-last-agent-batch','operation-status'].includes(command))throw new AppError('UNKNOWN_COMMAND','Unknown command. Inspect the installed CLI schema.');if(!store.active)throw new AppError('NO_DOCUMENT','Create or open a drawing first.');working=mutationCommands.has(command);await broadcast();try{return await scene({...request,document:store.active.id})}finally{working=false;await broadcast()}
  }}
 function slug(s:string){return s.trim().replace(/[<>:"/\\|?*\x00-\x1F]/g,'-').slice(0,100)||'Untitled'}
 let commandQueue=Promise.resolve();
-function run(request:Request,fromAgent=false):Promise<Reply>{const work=async()=>{try{const key=fromAgent&&request.requestId&&!mutationCommands.has(request.command)?request.requestId:null;const hash=JSON.stringify(request);if(key&&receipts.has(key)){const old=receipts.get(key)!;if(old.hash!==hash)throw new AppError('REQUEST_ID_REUSED','Use a new request ID for a different operation.');return old.reply}const reply=success(await execute(request,fromAgent));if(fromAgent&&!['status','list','path-suggest','integration-status'].includes(request.command)){lastUsed=Date.now();await broadcast();}if(key){receipts.set(key,{hash,reply});if(receipts.size>500)receipts.delete(receipts.keys().next().value!)}return reply}catch(e){if(!fromAgent&&(e as any).code!=='CANCELLED'){errorMessage=(e as Error).message;await broadcast();}return failure(e)}};const result=commandQueue.then(work);commandQueue=result.then(()=>{});return result}
+function run(request:Request,fromAgent=false):Promise<Reply>{const sessionName=request.session||'default',generation=generations.get(sessionName)||0;const work=async()=>{try{if(mutationCommands.has(request.command)&&(generations.get(sessionName)||0)!==generation)throw new AppError('OPERATION_CANCELLED','This queued batch was stopped before dispatch. Inspect again before editing.');const key=fromAgent&&request.requestId&&request.command!=='operation-status'&&!mutationCommands.has(request.command)?request.requestId:null;const hash=JSON.stringify(request);if(key&&receipts.has(key)){const old=receipts.get(key)!;if(old.hash!==hash)throw new AppError('REQUEST_ID_REUSED','Use a new request ID for a different operation.');return old.reply}const reply=success(await execute(request,fromAgent));if(fromAgent&&!['status','list','path-suggest','integration-status'].includes(request.command)){lastUsed=Date.now();await broadcast();}if(key){receipts.set(key,{hash,reply});if(receipts.size>500)receipts.delete(receipts.keys().next().value!)}return reply}catch(e){if(!fromAgent&&(e as any).code!=='CANCELLED'){errorMessage=(e as Error).message;await broadcast();}return failure(e)}};if(['stop','resume'].includes(request.command))return work();const result=commandQueue.then(work);commandQueue=result.then(()=>{});return result}
 function validSender(event:any){if(event.sender!==window.webContents||!event.senderFrame?.url.startsWith('app://local/'))throw new AppError('INVALID_SENDER','Untrusted renderer.');}
 app.whenReady().then(async()=>{
  await mkdir(dataDir,{recursive:true,mode:0o700});if(process.platform!=='win32')await chmod(dataDir,0o700);
@@ -115,8 +120,9 @@ app.whenReady().then(async()=>{
  server.listen(socket,async()=>{if(process.platform!=='win32')await chmod(socket,0o600);await writeFile(endpoint,JSON.stringify({socket,token,pid:process.pid,version:app.getVersion(),protocol:1}),{mode:0o600});if(process.platform!=='win32')await chmod(endpoint,0o600)});
  server.on('error',e=>{console.error('Local control:',e.message)});
  app.on('will-quit',()=>{server.close();void unlink(endpoint).catch(()=>{});if(process.platform!=='win32')void unlink(socket).catch(()=>{})});
+ await readyPromise;initializationResolve();
  const startup=process.argv.find(arg=>arg.endsWith('.excalidraw'));if(startup)await run({command:'open',args:{path:path.resolve(startup)}});
 }).catch(error=>{console.error(error);app.quit()});
-app.on('second-instance',(_event,argv)=>{window?.show();window?.focus();const file=argv.find(v=>v.endsWith('.excalidraw'));if(file)void run({command:'open',args:{path:path.resolve(file)}})});
-app.on('open-file',(event,file)=>{event.preventDefault();void app.whenReady().then(()=>run({command:'open',args:{path:file}}))});
+app.on('second-instance',(_event,argv)=>{void initializationPromise.then(()=>{window.show();window.focus();const file=argv.find(v=>v.endsWith('.excalidraw'));if(file)void run({command:'open',args:{path:path.resolve(file)}})})});
+app.on('open-file',(event,file)=>{event.preventDefault();void initializationPromise.then(()=>run({command:'open',args:{path:file}}))});
 app.on('activate',()=>window?.show());

@@ -1,0 +1,45 @@
+# Third-party notices
+
+Agent Excalidraw is an independent application. Excalidraw and the other projects named here retain their own copyrights and trademarks. The application's MIT license does not replace the licenses for bundled fonts, libraries or the Electron/Chromium runtime.
+
+This notice records the editor and font assets audited from **`@excalidraw/excalidraw@0.18.1`**, corresponding to Excalidraw commit [`a2ec2889babf7d2295469c6d90ebe77fae57df84`](https://github.com/excalidraw/excalidraw/tree/a2ec2889babf7d2295469c6d90ebe77fae57df84). Retain these notices and the referenced license texts with redistributed application packages. A package build must include the notice directory, not only link to GitHub.
+
+## Excalidraw software
+
+Copyright (c) 2020 Excalidraw. Licensed under the MIT License. The full license is preserved in [Excalidraw-MIT.txt](../assets/font-licenses/Excalidraw-MIT.txt), taken from the [pinned upstream license](https://github.com/excalidraw/excalidraw/blob/a2ec2889babf7d2295469c6d90ebe77fae57df84/LICENSE).
+
+The separate font licenses below apply to the actual font programs. They must not be inferred from the editor package's MIT field.
+
+## Font notices
+
+| Font | Copyright / attribution | License text and provenance |
+|---|---|---|
+| Assistant, four weights | Copyright 2020 The Assistant Project Authors; Copyright 2010 The Source Sans Pro Authors. Source is a trademark of Adobe Systems Incorporated; the upstream notice reserves “Source”. | [Assistant-OFL.txt](../assets/font-licenses/Assistant-OFL.txt), SIL Open Font License 1.1; [Google Fonts pinned source](https://github.com/google/fonts/blob/cc5661d43cd4f9aad5567033a8e15ca28dc35c86/ofl/assistant/OFL.txt). |
+| Cascadia Code | Copyright (c) 2019–Present Microsoft Corporation; bundled binary also records © 2020 Microsoft Corporation. Reserved Font Name Cascadia Code. | [Cascadia-OFL.txt](../assets/font-licenses/Cascadia-OFL.txt), SIL Open Font License 1.1; [Microsoft's matching release source](https://github.com/microsoft/cascadia-code/blob/0610f2df4356200adb93cb5bca2221b92ad6ee7e/LICENSE). |
+| Comic Shanns | Copyright (c) 2018 Shannon Miwa; (c) 2023 Jesus Gonzalez; (c) 2023 Rodrigo Batista de Moraes; (c) 2024 Fini Jastrow; (c) 2024 Kyle Beechly. | [ComicShanns-MIT.txt](../assets/font-licenses/ComicShanns-MIT.txt), full MIT notice extracted from the shipped font name table. The same notice is in the [pinned SDK font source header](https://github.com/excalidraw/excalidraw/blob/a2ec2889babf7d2295469c6d90ebe77fae57df84/packages/excalidraw/fonts/ComicShanns/index.ts). |
+| Excalifont | Copyright (c) 2024 Excalidraw. Virgil design: Your Own Font Foundry; Excalifont modifications: Ján Filípek / DizajnDesign. Excalifont is a trademark of Excalidraw. | [Excalifont-OFL.txt](../assets/font-licenses/Excalifont-OFL.txt), SIL Open Font License 1.1, including the full grant preserved by the [pinned SDK source header](https://github.com/excalidraw/excalidraw/blob/a2ec2889babf7d2295469c6d90ebe77fae57df84/packages/excalidraw/fonts/Excalifont/index.ts). |
+| Lilita One | Copyright (c) 2011 Juan Montoreano. The bundled binary reserves “Lilita One”; upstream Google Fonts notice reserves “Lilita”. Both notices are retained in the source license and extracted metadata. | [Lilita-OFL.txt](../assets/font-licenses/Lilita-OFL.txt), SIL Open Font License 1.1; [Google Fonts pinned source](https://github.com/google/fonts/blob/cc5661d43cd4f9aad5567033a8e15ca28dc35c86/ofl/lilitaone/OFL.txt). |
+| Nunito | Copyright 2014 The Nunito Project Authors. | [Nunito-OFL.txt](../assets/font-licenses/Nunito-OFL.txt), SIL Open Font License 1.1; [Google Fonts pinned source](https://github.com/google/fonts/blob/cc5661d43cd4f9aad5567033a8e15ca28dc35c86/ofl/nunito/OFL.txt). |
+| Virgil | Copyright (c) 2011 Your Own Font Foundry. | [Virgil-OFL.txt](../assets/font-licenses/Virgil-OFL.txt), full SIL Open Font License 1.1 extracted from the shipped binary's name table; [pinned SDK binary](https://github.com/excalidraw/excalidraw/blob/a2ec2889babf7d2295469c6d90ebe77fae57df84/packages/excalidraw/fonts/Virgil/Virgil-Regular.woff2). |
+| Xiaolai SC | Bundled binary: Copyright © 2020 LXGW. Upstream license: Copyright 2020–2024 LXGW and Copyright 2014 Nozomi Seto. | [Xiaolai-OFL.txt](../assets/font-licenses/Xiaolai-OFL.txt), SIL Open Font License 1.1; [upstream pinned source](https://github.com/lxgw/kose-font/blob/172d9dbe94ade82b5316e0989e3aa286b7041baf/OFL.txt). [SDK modification notice](../assets/font-licenses/Xiaolai-source-notice.txt) retains removal of non-CJK codepoints and spacing changes made upstream. |
+| Agent Sans, the app's replacement fallback | Derived from Liberation Sans 2.1.5: digitized data Copyright (c) 2010 Google Corporation; Copyright (c) 2012 Red Hat, Inc. Original Reserved Font Names include Arimo, Tinos, Cousine and Liberation. | [AgentSans-OFL.txt](../assets/font-licenses/AgentSans-OFL.txt), SIL Open Font License 1.1. Internal names are changed to Agent Sans for this WOFF2 derivative; [exact provenance and hashes](../assets/fonts/provenance.json), [reproduction script](../assets/fonts/prepare-font.py), [official source release](https://github.com/liberationfonts/liberation-fonts/releases/tag/2.1.5). |
+
+The upstream package contains no Emoji font binary. Its [Emoji descriptor](https://github.com/excalidraw/excalidraw/blob/a2ec2889babf7d2295469c6d90ebe77fae57df84/packages/excalidraw/fonts/Emoji/index.ts) uses the local-font protocol. OS-provided fonts are not copied or redistributed by this project. Helvetica is likewise a local/system family, not a font binary copied from the SDK.
+
+### Fallback replacement and preservation of reserved names
+
+The SDK's original `Liberation/LiberationSans-Regular.woff2` identifies itself as **version 1.05**, with an Ascender 2007 notice and a legacy license URL. It must not be mislabeled as the modern OFL-licensed Liberation 2.x font. The app's build replaces that fallback with **Agent Sans**, derived from the official OFL-licensed 2.1.5 release. Its internal family, unique, full and PostScript names are changed, with copyright and license records retained. The SDK resource path is a compatibility alias; the modified font program's own primary name is Agent Sans.
+
+The legacy GPL-2.0/exception notices are retained only as audit references in [Liberation-LICENSE.txt](../assets/font-licenses/Liberation-LICENSE.txt) and [Liberation-GPL-2.0.txt](../assets/font-licenses/Liberation-GPL-2.0.txt). They do not establish exact corresponding-source provenance for the original 1.05 binary and are **not a substitute for removing that original font from distributed packages**. Inspect both renderer resources and dependency contents in the packaged app. The upstream SDK's MIT license alone does not resolve this font's separate license.
+
+Agent Sans preserves the source 2.1.5 glyph advances, character map and units-per-em through conversion. Against the SDK's replaced 1.05 binary, printable ASCII advances and `hhea` vertical metrics match; the middle dot U+00B7 and figure dash U+2012 have different advances among the 658 shared codepoints. This is a documented fallback-version change, not a claim of pixel-identical rendering. Runtime drawing and export checks remain required.
+
+### Audit data and redistribution
+
+[Bundled font metadata](../assets/font-licenses/bundled-font-metadata.json) records SHA-256 hashes for all 234 upstream SDK WOFF2 files, and name-table copyright/license fields from one representative per family. It records the **upstream inputs**, including the legacy file that is replaced; it is not itself proof of packaged contents. [Source URLs](../assets/font-licenses/source-urls.json) pin the downloaded license texts. Metadata was read using fontTools in a temporary audit environment; no upstream binary in `node_modules` was changed.
+
+Preserve all copyright and license notices. The OFL and MIT terms are reproduced in full in the referenced files. Do not redistribute modified fonts under reserved original family names without the required permission. This project does not claim authorship of the underlying typeface designs.
+
+## Other runtime software
+
+The desktop runtime includes Electron and Chromium components with their own bundled license files. The CLI and editor depend on additional open-source packages, including React, Lucide, Commander, Zod and the Model Context Protocol SDK. Their exact locked dependency versions, copyright texts and licenses must accompany the distributed artifacts through the release dependency inventory. This font/editor notice is not a claim that a complete transitive-runtime license audit has already passed. Preserve Electron's generated license files when packaging the app.

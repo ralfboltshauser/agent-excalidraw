@@ -68,7 +68,7 @@ jobs:
             os: { type: os.type(), release: os.release(), version: os.version() },
             node: process.version, app: pkg.version,
             electron: pkg.devDependencies.electron,
-            excalidraw: pkg.dependencies['@excalidraw/excalidraw'],
+            excalidraw: pkg.devDependencies['@excalidraw/excalidraw'],
             signing: 'Unsigned CI package; no public installer/signing claim',
           }, null, 2));
           NODE

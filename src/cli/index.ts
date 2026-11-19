@@ -29,10 +29,11 @@ function decorate(command:Command,name:string){
   for(const key of Object.keys(shape)){
     if(['document','epoch','expectedRevision','requestId','session'].includes(key))continue;
     const flag=key.replace(/[A-Z]/g,c=>'-'+c.toLowerCase());
-    if(['compact','background','embedScene','selection','focus'].includes(key))command.option(`--${flag}`,shape[key].description||key);
+    if(key==='background')command.option('--background',shape[key].description||key).option('--no-background','Create a transparent export without the canvas background').setOptionValue('background',undefined);
+    else if(['compact','embedScene','selection','focus'].includes(key))command.option(`--${flag}`,shape[key].description||key);
     else if(['ids'].includes(key))command.option(`--${flag} <ids>`,'Comma-separated stable IDs',v=>v.split(',').filter(Boolean));
-    else if(['zoom','scrollX','scrollY','scale','gap','offset','limit'].includes(key))command.option(`--${flag} <number>`,shape[key].description||key,v=>Number(v));
-    else if(key!=='operations')command.option(`--${flag} <value>`,shape[key].description||key);
+    else if(['zoom','scrollX','scrollY','scale','gap','offset','limit','x','y'].includes(key))command.option(`--${flag} <number>`,shape[key].description||key,v=>Number(v));
+    else if(key!=='operations'&&key!=='region')command.option(`--${flag} <value>`,shape[key].description||key);
   }
   command.addHelpText('after',`\nInput contract:\n${JSON.stringify(schemaDocument().commands.find(c=>c.name===name)?.inputSchema,null,2)}\n\nScene edits require document, epoch, expectedRevision and requestId. Inspect snapshot first.\n`);
   command.action(async()=>{
@@ -44,7 +45,7 @@ function decorate(command:Command,name:string){
       // Permit a saved Request envelope as well as the concise args-only form.
       if(payload.args)payload={...payload.args,...Object.fromEntries(['document','epoch','expectedRevision','requestId','session'].filter(k=>payload[k]!==undefined).map(k=>[k,payload[k]]))};
       const {json,input,launch,...overrides}=options;
-      payload={...payload,...overrides};
+      payload={...payload,...Object.fromEntries(Object.entries(overrides).filter(([,value])=>value!==undefined))};
       const request=validateRequest(name,payload);
       output(await requestApp(request,{launch:name!=='status'&&launch!==false}),!!json);
     }catch(error:any){if(error.name==='ZodError')error=new AppError('INVALID_INPUT',error.issues.map((i:any)=>`${i.path.join('.')||'input'}: ${i.message}`).join('; '));output(failure(error),!!options.json);}

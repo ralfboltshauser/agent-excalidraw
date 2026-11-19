@@ -54,3 +54,34 @@ test('existing canonical folder without ownership marker is preserved',async()=>
 test('mutation schema requires live preconditions; every command has discoverable schema',()=>{
   assert.throws(()=>validateRequest('apply',{operations:[]}),{code:'INVALID_INPUT'});assert.throws(()=>validateRequest('apply',{document:'d',epoch:'e',expectedRevision:-1,requestId:'x',operations:[]}),{code:'INVALID_INPUT'});assert.equal(schemaDocument().commands.length,commands.length);assert.equal(dataDirectory({},'win32','C:\\Users\\test'),join('C:\\Users\\test','AppData','Roaming','agent-excalidraw'));
 });
+test('agent operation schema exposes styles and rejects ignored nested or misspelled fields',()=>{
+  const preconditions={document:'d',epoch:'e',expectedRevision:0,requestId:'styled'};
+  const operation={op:'create',type:'rectangle',ref:'node',x:20,y:30,width:180,height:90,strokeColor:'#6965db',backgroundColor:'#eeedff',fillStyle:'solid',strokeStyle:'solid',strokeWidth:2,roughness:1,opacity:95,roundness:{type:3},label:{text:'Hello',fontFamily:5,fontSize:20,textAlign:'left',verticalAlign:'top'}};
+  const request=validateRequest('apply',{...preconditions,operations:[operation]});assert.deepEqual(request.args?.operations,[operation]);
+  assert.throws(()=>validateRequest('apply',{...preconditions,operations:[{op:'create',type:'rectangle',style:{strokeColor:'#ff0000'}}]}),error=>(error as any).code==='INVALID_INPUT'&&/Put style fields/.test((error as Error).message));
+  assert.throws(()=>validateRequest('apply',{...preconditions,operations:[{op:'update',id:'a',stokeColor:'#ff0000'}]}),error=>(error as any).code==='INVALID_INPUT'&&/stokeColor/.test((error as Error).message));
+  assert.throws(()=>validateRequest('apply',{...preconditions,operations:[{op:'delete',id:'a',backgroundColor:'#ff0000'}]}),{code:'INVALID_INPUT'});
+  assert.throws(()=>validateRequest('apply',{...preconditions,operations:[{op:'create',type:'text',text:'Hello',label:'Ignored'}]}),{code:'INVALID_INPUT'});
+  assert.throws(()=>validateRequest('apply',{...preconditions,operations:[{op:'create',type:'text'}]}),{code:'INVALID_INPUT'});
+  assert.throws(()=>validateRequest('apply',{...preconditions,operations:[{op:'create',type:'rectangle',fontFamily:4}]}),{code:'INVALID_INPUT'});
+  const updated=validateRequest('apply',{...preconditions,operations:[{op:'update',id:'a',label:{text:'Updated',fontFamily:6,fontSize:24,textAlign:'right',verticalAlign:'bottom'}}]});assert.equal(updated.args?.operations[0].label.fontFamily,6);
+  const published=JSON.stringify(schemaDocument().commands.find(c=>c.name==='apply')?.inputSchema);for(const key of ['strokeColor','backgroundColor','fillStyle','roundness','fontFamily','fontSize','textAlign','verticalAlign','points'])assert(published.includes('"'+key+'"'));assert(published.includes('"additionalProperties":false'));
+});
+test('render schema advertises exact bounds, transparency, selection and explicit scene embedding',()=>{
+  const base={document:'d',epoch:'e',output:'/tmp/render.png'};
+  assert.deepEqual(validateRequest('render',{...base,scale:4,background:false,embedScene:true,selection:true}).args,{output:'/tmp/render.png',background:false,embedScene:true,scale:4,selection:true});
+  for(const scale of [0,.09,4.01,5])assert.throws(()=>validateRequest('render',{...base,scale}),{code:'INVALID_INPUT'});
+  assert.equal(validateRequest('render',{...base,scale:.1}).args?.scale,.1);
+  const inputSchema=schemaDocument().commands.find(c=>c.name==='render')!.inputSchema as any;assert.equal(inputSchema.properties.scale.minimum,.1);assert.equal(inputSchema.properties.scale.maximum,4);assert.equal(inputSchema.properties.embedScene.type,'boolean');assert.equal(inputSchema.properties.background.type,'boolean');
+  const snapshot=validateRequest('snapshot',{selection:true,group:'g',region:{x:0,y:0,width:100,height:100}});assert.equal(snapshot.args?.group,'g');assert.equal(snapshot.args?.selection,true);
+});
+test('CLI --no-background sends false and leaves input-file false intact without a flag',async()=>{
+  const dir=await temporary();const received:any[]=[];const app=await fakeApp(dir,(request,socket)=>{received.push(request);socket.end(JSON.stringify({ok:true,result:{output:'/tmp/render.png'}})+'\n')});
+  const env={...process.env,AGENT_EXCALIDRAW_DATA_DIR:dir};
+  try{
+    await exec(process.execPath,['--import','tsx',cli,'render','--no-launch','--document','d','--epoch','e','--output','/tmp/render.png','--no-background','--embed-scene','--scale','2','--json'],{env});assert.equal(received[0].args.background,false);assert.equal(received[0].args.embedScene,true);assert.equal(received[0].args.scale,2);assert(!('editable' in received[0].args));
+    await writeFile(join(dir,'render.json'),JSON.stringify({document:'d',epoch:'e',output:'/tmp/render.png',background:false,embedScene:false}));
+    await exec(process.execPath,['--import','tsx',cli,'render','--no-launch','--input',join(dir,'render.json'),'--json'],{env});assert.equal(received[1].args.background,false);assert.equal(received[1].args.embedScene,false);
+    await exec(process.execPath,['--import','tsx',cli,'render','--no-launch','--document','d','--epoch','e','--output','/tmp/render.png','--background','--json'],{env});assert.equal(received[2].args.background,true);
+  }finally{await app.close();await rm(dir,{recursive:true,force:true})}
+});

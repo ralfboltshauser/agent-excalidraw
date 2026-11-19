@@ -1,0 +1,51 @@
+{
+  "family": "Agent Sans",
+  "derivedFrom": {
+    "family": "Liberation Sans",
+    "version": "2.1.5",
+    "releaseUrl": "https://github.com/liberationfonts/liberation-fonts/releases/tag/2.1.5",
+    "sourceCommit": "4b0192046158094654e865245832c66d2104219e",
+    "archiveUrl": "https://github.com/liberationfonts/liberation-fonts/files/7261482/liberation-fonts-ttf-2.1.5.tar.gz",
+    "archiveSha256": "7191c669bf38899f73a2094ed00f7b800553364f90e2637010a69c0e268f25d0",
+    "archiveMember": "liberation-fonts-ttf-2.1.5/LiberationSans-Regular.ttf",
+    "ttfSha256": "76d04c18ea243f426b7de1f3ad208e927008f961dc5945e5aad352d0dfde8ee8"
+  },
+  "modifications": [
+    "Renamed internal family, full, unique and PostScript names to Agent Sans to respect reserved font names.",
+    "Converted TTF to WOFF2 with fontTools; glyph advances, cmap and units-per-em checked unchanged against source TTF."
+  ],
+  "output": {
+    "file": "AgentSans-Regular.woff2",
+    "sha256": "5b8340b229c2f9888b8035b68e8489e28b3af3c4d561463bc31030b01cdfcb2e",
+    "bytes": 146980
+  },
+  "tools": {
+    "fontTools": "4.68.0",
+    "brotli": "1.2.1"
+  },
+  "comparisonWithReplacedSdkFont": {
+    "sdkVersion": "@excalidraw/excalidraw@0.18.1",
+    "path": "Liberation/LiberationSans-Regular.woff2",
+    "fontVersion": "Version 1.05 ",
+    "commonCodepoints": 658,
+    "advanceMismatches": 2,
+    "asciiAdvanceMismatches": [],
+    "mismatchCodepoints": [
+      "U+00B7",
+      "U+2012"
+    ],
+    "oldUnitsPerEm": 2048,
+    "newUnitsPerEm": 2048,
+    "oldHhea": {
+      "ascent": 1854,
+      "descent": -434,
+      "lineGap": 67
+    },
+    "newHhea": {
+      "ascent": 1854,
+      "descent": -434,
+      "lineGap": 67
+    }
+  },
+  "runtimeVerification": "Pending actual SDK fallback draw/render/export check; metric comparison does not establish pixel-identical outlines."
+}
