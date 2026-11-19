@@ -2444,6 +2444,11 @@ test("integration setup and Disconnect operate only on the isolated owned paths"
       exact: true,
     })
     .click();
+  // Completion must refresh the currently visible paths, without navigating
+  // away and relying on the Agents screen's mount effect to fetch fresh state.
+  await expect(
+    workspace.page.locator(".filepath.small").filter({ hasText: " · linked" }),
+  ).toHaveCount(3);
   await expect
     .poll(
       async () =>
@@ -2459,13 +2464,12 @@ test("integration setup and Disconnect operate only on the isolated owned paths"
   for (const link of installed.links)
     expect(await realpath(link.path)).toBe(canonical);
   await workspace.page
-    .getByRole("button", { name: "Back to your space", exact: true })
-    .click();
-  await workspace.page
-    .getByRole("button", { name: "Agents", exact: true })
-    .click();
-  await workspace.page
     .getByRole("heading", { name: "Installed on this computer", exact: true })
+    .scrollIntoViewIfNeeded();
+  await workspace.page
+    .locator(".filepath.small")
+    .filter({ hasText: " · linked" })
+    .last()
     .scrollIntoViewIfNeeded();
   await workspace.screenshot("01-owned-integration-paths");
   await workspace.page

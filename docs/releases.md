@@ -25,6 +25,15 @@ npm run dev
 
 When a verified macOS release is published, its GitHub release notes will name the exact supported OS versions, architecture, signed artifacts, checksums and known limits. Use that release's installation instructions. Do not treat a similarly named asset or a CI upload as a supported installer.
 
+Mac packaging uses canonical ASCII filenames while the app remains **Agent Excalidraw**:
+
+| Architecture  | DMG                                         | Automatic-install ZIP                       |
+| ------------- | ------------------------------------------- | ------------------------------------------- |
+| Apple silicon | `agent-excalidraw-VERSION-darwin-arm64.dmg` | `agent-excalidraw-VERSION-darwin-arm64.zip` |
+| Intel         | `agent-excalidraw-VERSION-darwin-x64.dmg`   | `agent-excalidraw-VERSION-darwin-x64.zip`   |
+
+Replace `VERSION` with the exact release version. These names are shared by packaging, GitHub assets, checksum records and the installer manifest. GitHub can normalize spaces and other unsafe characters in uploaded filenames; do not generate a manifest from a different local spelling.
+
 Manual use of a packaged desktop app needs no Node.js, terminal, Docker, MCP configuration or account. Choose New drawing or Open drawing and save with the OS shortcut. File associations and signing/quarantine behavior must be tested for the release artifact itself.
 
 ### Local CLI launcher
@@ -131,8 +140,17 @@ The current native workflow builds and tests source and packaged application dir
 - Verify macOS arm64 and x64 builds on actual matching hosts. Record signing, notarization, quarantine, file associations and clean-account installation/update/uninstall evidence.
 - Check the complete software/font inventory, packaged notices and synthetic-only examples. Keep endpoint files, credentials and private diagrams out of artifacts.
 - Create the signed/notarized macOS DMG/ZIP artifacts and a matching CLI tarball. Verify the automatic ZIP install path; do not repurpose unsigned CI output.
-- Generate the manifest from the exact signed ZIP assets with `node scripts/release-manifest.mjs --help` as the reference. The manifest calculates SHA-256; it does not sign or notarize anything.
-- Publish versioned assets/notes only after verification. The automatic installer reads tag `vVERSION` and `agent-excalidraw-manifest.json`; checksums must match the uploaded files.
+- Generate the manifest from the exact signed ZIP assets. For version 0.1.0:
+
+  ```sh
+  node scripts/release-manifest.mjs --version 0.1.0 \
+    --asset darwin arm64 release/agent-excalidraw-0.1.0-darwin-arm64.zip \
+    --asset darwin x64 release/agent-excalidraw-0.1.0-darwin-x64.zip
+  ```
+
+  The script rejects unsafe basenames rather than guessing GitHub normalization. It calculates SHA-256; it does not sign or notarize anything. See `node scripts/release-manifest.mjs --help` for additional targets.
+
+- Publish versioned assets/notes only after verification. Compare the actual GitHub asset names against the manifest and checksum filename records; all must match exactly. If an upload name changed, rename the asset to its canonical name and regenerate filename records from the same verified bytes. The automatic installer reads tag `vVERSION` and `agent-excalidraw-manifest.json`; checksums must match the uploaded files.
 - Re-run the public instructions in a clean consumer environment. Record what passed, what was not run and known limits in the ledger.
 
 Windows/Linux distribution and signing are future release work, even when an experimental native CI lane succeeds.

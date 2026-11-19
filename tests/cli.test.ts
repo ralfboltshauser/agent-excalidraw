@@ -16,6 +16,7 @@ import { join, resolve } from "node:path";
 import { createServer, type Server } from "node:net";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
+import { pathToFileURL } from "node:url";
 import { send, dataDirectory } from "../src/cli/transport.js";
 import { installSkills, uninstallSkills, roots } from "../src/cli/skills.js";
 import { validateRequest, schemaDocument } from "../src/cli/schema.js";
@@ -962,4 +963,83 @@ test("list pagination and search remain discoverable through the public CLI cont
   for (const flag of ["--query", "--offset", "--limit"])
     assert(help.includes(flag));
   assert(help.includes("nextOffset"));
+});
+test("install --version selects the requested release instead of invoking the root version flag", async () => {
+  const directory = await temporary();
+  const hook = join(directory, "fake-release-fetch.mjs");
+  const fetchLog = join(directory, "requested-release.txt");
+  await writeFile(
+    hook,
+    `
+    import { appendFile } from 'node:fs/promises';
+    globalThis.fetch = async (url) => {
+      await appendFile(process.env.AGENT_EXCALIDRAW_FETCH_TEST_LOG, String(url) + '\\n');
+      return new Response('{"message":"Not Found"}', { status: 404 });
+    };
+  `,
+  );
+  const argumentsBeforeCommand = [
+    "--import",
+    tsx,
+    "--import",
+    pathToFileURL(hook).href,
+    cli,
+  ];
+  const env = { ...process.env, AGENT_EXCALIDRAW_FETCH_TEST_LOG: fetchLog };
+  async function failedJson(args: string[]) {
+    try {
+      await exec(process.execPath, [...argumentsBeforeCommand, ...args], {
+        env,
+      });
+      assert.fail("This invocation must fail with a structured error");
+    } catch (error: any) {
+      assert.equal(error.code, 1);
+      assert.equal(error.stderr, "");
+      return JSON.parse(error.stdout);
+    }
+  }
+  try {
+    const requested = await failedJson([
+      "install",
+      "--version",
+      "0.1.37",
+      "--json",
+    ]);
+    assert.equal(requested.ok, false);
+    assert.equal(requested.error.code, "RELEASE_NOT_AVAILABLE");
+    assert.equal(
+      (await readFile(fetchLog, "utf8")).trim(),
+      "https://api.github.com/repos/ralfboltshauser/agent-excalidraw/releases/tags/v0.1.37",
+    );
+    const rootVersion = await exec(
+      process.execPath,
+      [...argumentsBeforeCommand, "--version"],
+      { env },
+    );
+    assert.equal(rootVersion.stdout.trim(), "0.1.0");
+    assert.equal(rootVersion.stderr, "");
+    const explicitVersion = await exec(
+      process.execPath,
+      [...argumentsBeforeCommand, "version", "--json"],
+      { env },
+    );
+    assert.equal(JSON.parse(explicitVersion.stdout).result.version, "0.1.0");
+    const missing = await failedJson(["install", "--version", "--json"]);
+    assert.equal(missing.error.code, "INVALID_ARGUMENT");
+    assert.match(missing.error.message, /version/);
+    const unknown = await failedJson([
+      "install",
+      "--unknown-install-flag",
+      "--json",
+    ]);
+    assert.equal(unknown.error.code, "INVALID_ARGUMENT");
+    assert.match(unknown.error.message, /unknown-install-flag/);
+    // All other parser paths above must complete without attempting a download.
+    assert.equal(
+      (await readFile(fetchLog, "utf8")).trim().split("\n").length,
+      1,
+    );
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
 });

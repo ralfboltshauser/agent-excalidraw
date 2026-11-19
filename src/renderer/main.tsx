@@ -1059,9 +1059,10 @@ function App() {
                   <button
                     className="secondary"
                     onClick={() =>
-                      request("install-skill").then((result) => {
+                      request("install-skill").then(async (result) => {
                         if (result) {
-                          setSetup((old: any) => ({ ...old, skill: true }));
+                          const installed = await request("integration-status");
+                          if (installed) setSetup(installed);
                           setNotice(
                             "Skill installed. Start a new agent session to discover it.",
                           );

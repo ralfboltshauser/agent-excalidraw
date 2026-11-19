@@ -78,7 +78,8 @@
       "target": [
         "dmg",
         "zip"
-      ]
+      ],
+      "artifactName": "agent-excalidraw-${version}-darwin-${arch}.${ext}"
     },
     "win": {
       "target": "nsis"

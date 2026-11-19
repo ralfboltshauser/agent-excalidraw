@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-import { Command, Option } from "commander";
+import { Command, Option, InvalidArgumentError } from "commander";
 import { readFile, stat } from "node:fs/promises";
 import { join, resolve } from "node:path";
 import { commands } from "../shared/commands.js";
@@ -184,7 +184,10 @@ function decorate(command: Command, name: string) {
 }
 export async function main(argv = process.argv) {
   const jsonRequested = argv.includes("--json");
+  // Keep root flags scoped before a subcommand: install --version names an app
+  // release, while a root --version only prints this CLI version.
   const program = new Command()
+    .enablePositionalOptions()
     .name("agent-excalidraw")
     .description(
       "Local Excalidraw for people and agents. Full CLI; optional MCP.",
@@ -388,7 +391,17 @@ Remove --dry-run to install there; use the same --home and --data-dir when unins
   program
     .command("install")
     .description("Download and verify a compatible released desktop app")
-    .option("--version <version>", "Specific app release version", VERSION)
+    .addOption(
+      new Option("--version <version>", "Specific app release version")
+        .default(VERSION)
+        .argParser((value) => {
+          if (value.startsWith("-"))
+            throw new InvalidArgumentError(
+              "Expected a release version after --version, not another option.",
+            );
+          return value;
+        }),
+    )
     .option("--json")
     .action(async (opts) => {
       try {

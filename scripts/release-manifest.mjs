@@ -12,14 +12,17 @@ Usage:
 
 Examples:
   node scripts/release-manifest.mjs --version 0.1.0 \\
-    --asset darwin arm64 'release/Agent Excalidraw-0.1.0-arm64-mac.zip' \\
-    --asset darwin x64 'release/Agent Excalidraw-0.1.0-mac.zip' \\
-    --asset win32 x64 'release/Agent Excalidraw Setup 0.1.0.exe' \\
-    --asset linux x64 'release/Agent Excalidraw-0.1.0.AppImage'
+    --asset darwin arm64 release/agent-excalidraw-0.1.0-darwin-arm64.zip \\
+    --asset darwin x64 release/agent-excalidraw-0.1.0-darwin-x64.zip \\
+    --asset win32 x64 release/agent-excalidraw-0.1.0-win32-x64.exe \\
+    --asset linux x64 release/agent-excalidraw-0.1.0-linux-x64.AppImage
 
 Defaults: version from package.json; output release/agent-excalidraw-manifest.json.
 Automatic install supports darwin .zip, win32 .exe, linux .AppImage.
 DMG and deb artifacts remain useful manual downloads, but are not install assets.
+Asset basenames must use ASCII letters/digits/dots/underscores/hyphens and start
+with a letter or digit. Spaces, leading dots and other characters are rejected:
+GitHub may normalize those names, breaking exact manifest/checksum matching.
 This script verifies input files and calculates checksums. It does not sign,
 notarize, publish, or establish trust in those files. Generate public manifests
 only after the separate signing and release-verification gates pass.
@@ -81,6 +84,10 @@ async function main(args) {
         `Duplicate install target ${identity}; the installer requires one unambiguous asset.`,
       );
     const name = path.basename(input.file);
+    if (!/^[A-Za-z0-9][A-Za-z0-9._-]*$/.test(name))
+      throw new Error(
+        `Unsafe release asset name ${JSON.stringify(name)}. Use ASCII letters, digits, dots, underscores and hyphens, starting with a letter or digit. GitHub may rename unsafe assets; manifest names must match uploaded names exactly.`,
+      );
     if (!name.endsWith(formats[input.platform]))
       throw new Error(
         `${identity} requires a ${formats[input.platform]} asset, received ${name}.`,
