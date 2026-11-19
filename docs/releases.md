@@ -6,6 +6,12 @@ This is a source/development preview. The first public desktop release targets *
 
 Windows x64 and Linux x64 remain experimental. Windows has completed an earlier native CI journey run; that does not verify every later commit, a signed installer or support for daily use. The latest native lanes and the [verification ledger](design/verification-ledger.md) are authoritative. A green source test or cross-compiled binary cannot substitute for running the actual package.
 
+### 0.2 development increment
+
+Adds one optional self-contained MCP App canvas viewer, served by the existing `agent-excalidraw mcp` command. The panel follows unsaved human/agent edits, supports inspection controls and reports actual save state; manual editing and explicit saving remain in the native editor. Non-UI clients retain ordinary CLI/desktop guidance. Existing 0.1 desktop apps receive a useful refusal from a new viewer adapter without losing their unsaved work.
+
+The local signed arm64 0.2 package and a clean npm tarball have direct runtime evidence. This does not announce a published 0.2 download or npm registry release. [Viewer setup and scope](embedded-canvas.md) and [exact verification/host limits](verification/embedded-canvas.md) are separate from the public Mac trust gate.
+
 ## Run the current source
 
 Requires Node.js 22.12 or newer, npm and the native desktop runtime dependencies for your host:

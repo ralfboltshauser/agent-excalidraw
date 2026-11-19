@@ -2,6 +2,10 @@
 
 Agent Excalidraw 0.2 adds an optional read-only canvas inside a compatible coding-agent conversation. The desktop editor remains the live drawing authority. Human edits, agent edits and explicit local saves keep using the same file.
 
+![Embedded viewer showing a synthetic local drawing](screenshots/embedded-canvas.png)
+
+Actual packaged-app capture in the SDK reference host. Installed-host qualification is recorded separately below.
+
 ## Connect
 
 Use the same local stdio command in any compatible host:

@@ -1056,6 +1056,32 @@ test("a real PNG imported through the image picker survives undo, save and reope
     (element: any) => element.type === "image",
   );
   expect(imported.fileId).toBeTruthy();
+  const previewScope = randomUUID();
+  const previewBinding = result(
+    await presentationSocket(workspace, {
+      command: "presentation-open",
+      ...(await target(workspace)),
+      args: { scope: previewScope },
+    }),
+  );
+  const imagePreview = result(
+    await presentationSocket(workspace, {
+      command: "presentation-read",
+      args: {
+        scope: previewScope,
+        viewId: previewBinding.viewId,
+        mode: "head",
+      },
+    }),
+  );
+  expect(imagePreview.kind).toBe("frame");
+  expect(imagePreview.state.dirty).toBe(true);
+  await presentationBytes(
+    workspace,
+    previewScope,
+    previewBinding.viewId,
+    imagePreview.capture,
+  );
   result(await workspace.cli("save", await target(workspace)));
   const persisted = JSON.parse(await readFile(drawing.path, "utf8"));
   expect(persisted.files[imported.fileId].mimeType).toBe("image/png");
@@ -3542,7 +3568,32 @@ test("embedded viewer follows real stdio MCP captures, saves and document invali
     });
     const content = resource.contents[0];
     expect("text" in content).toBe(true);
-    const html = (content as any).text;
+    const resourceHtml = (content as any).text;
+    // Exercise the self-contained app under a deny-by-default resource policy,
+    // including blob image display. The test host must enforce the requested
+    // empty network allowlists, rather than silently ignoring resource metadata.
+    expect((content as any)._meta.ui.csp).toEqual({
+      connectDomains: [],
+      resourceDomains: [],
+      frameDomains: [],
+    });
+    const csp = [
+      "default-src 'none'",
+      "script-src 'unsafe-inline'",
+      "style-src 'unsafe-inline'",
+      "img-src data: blob:",
+      "font-src data:",
+      "connect-src 'none'",
+      "frame-src 'none'",
+      "object-src 'none'",
+      "base-uri 'none'",
+      "form-action 'none'",
+    ].join("; ");
+    const html = resourceHtml.replace(
+      "<head>",
+      () =>
+        `<head><meta http-equiv="Content-Security-Policy" content="${csp}">`,
+    );
     expect(html).not.toContain(workspace.dataDirectory);
     expect(html).not.toContain(identity.document);
     const hostFile = path.join(workspace.root, "sdk-host.html");
@@ -3636,6 +3687,9 @@ test("embedded viewer follows real stdio MCP captures, saves and document invali
     await hostPage.screenshot({
       path: path.join(workspace.root, "embedded-agent-edit.png"),
     });
+    await frame.locator("#app").screenshot({
+      path: path.join(workspace.root, "embedded-panel.png"),
+    });
     const afterAgent = await frame.locator("img").getAttribute("src");
     const canvas = await focusCanvas(workspace.page);
     await workspace.page.keyboard.press("r");
@@ -3656,6 +3710,77 @@ test("embedded viewer follows real stdio MCP captures, saves and document invali
     await hostPage.screenshot({
       path: path.join(workspace.root, "embedded-human-edit.png"),
     });
+    if (process.env.AE_EMBEDDED_LATENCY === "1") {
+      // Opt-in reference measurement: real edits, real two-second polling and
+      // decoded immutable image swaps. Do not replace polling with Refresh.
+      const beforeSeed = await frame.locator("img").getAttribute("src");
+      const seeded = result(
+        await apply(
+          workspace,
+          Array.from({ length: 250 }, (_, index) => ({
+            op: "create",
+            ref: `latency-${index}`,
+            type: "rectangle",
+            x: (index % 25) * 90,
+            y: 600 + Math.floor(index / 25) * 70,
+            width: 75,
+            height: 55,
+            backgroundColor: "#e6f5ee",
+            fillStyle: "solid",
+          })),
+        ),
+      );
+      const marker = seeded.created.find(
+        (entry: any) => entry.ref === "latency-0",
+      ).id;
+      await frame
+        .getByRole("button", { name: "Refresh preview", exact: true })
+        .click();
+      // Wait until the seeded scene is displayed before timing subsequent edits.
+      await expect(frame.locator(".viewer-status")).toHaveText(
+        "Live · Unsaved",
+      );
+      await expect
+        .poll(() => frame.locator("img").getAttribute("src"))
+        .not.toBe(beforeSeed);
+      const samples: number[] = [];
+      for (let index = 0; index < 20; index++) {
+        const before = await frame.locator("img").getAttribute("src");
+        result(
+          await apply(workspace, [
+            {
+              op: "update",
+              id: marker,
+              backgroundColor: index % 2 ? "#dbe4ff" : "#ffd8a8",
+            },
+          ]),
+        );
+        const admitted = performance.now();
+        await expect
+          .poll(() => frame.locator("img").getAttribute("src"), {
+            intervals: [20, 30, 50],
+            timeout: 5000,
+          })
+          .not.toBe(before);
+        samples.push(performance.now() - admitted);
+      }
+      const sorted = [...samples].sort((a, b) => a - b);
+      const p95 = sorted[Math.ceil(sorted.length * 0.95) - 1];
+      const measurement = {
+        samplesMs: samples,
+        p95Ms: p95,
+        maxMs: sorted.at(-1),
+        fixture: "250 extra rectangles plus the base scene",
+        origin: "accepted edit receipt to decoded image swap",
+        pollMs: 2000,
+      };
+      await writeFile(
+        path.join(workspace.root, "embedded-latency.json"),
+        JSON.stringify(measurement, null, 2),
+      );
+      console.log("EMBEDDED_LATENCY", JSON.stringify(measurement));
+      expect(p95).toBeLessThan(3500);
+    }
     result(await workspace.cli("save", identity));
     await create(workspace, "Different private synthetic drawing");
     await frame
