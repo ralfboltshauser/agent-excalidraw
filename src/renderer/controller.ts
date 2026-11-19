@@ -755,22 +755,27 @@ export function createController(api: ExcalidrawImperativeAPI, bridge: Bridge) {
     pointer = false;
     composition = false;
     try {
-      api.resetScene();
-      if (Object.keys(scene.files || {}).length)
-        api.addFiles(Object.values(scene.files));
-      api.updateScene({
-        elements: restored,
-        appState: {
-          ...scene.appState,
-          selectedElementIds: {},
-          selectedGroupIds: {},
-          editingGroupId: null,
-        },
-        captureUpdate: CaptureUpdateAction.NEVER,
+      // The pinned SDK commits its Store/history from componentDidUpdate.
+      // Flush the reset and replacement together so that commit completes even
+      // when macOS pauses animation frames for a hidden or occluded window.
+      flushSync(() => {
+        api.resetScene();
+        if (Object.keys(scene.files || {}).length)
+          api.addFiles(Object.values(scene.files));
+        api.updateScene({
+          elements: restored,
+          appState: {
+            ...scene.appState,
+            selectedElementIds: {},
+            selectedGroupIds: {},
+            editingGroupId: null,
+          },
+          captureUpdate: CaptureUpdateAction.NEVER,
+        });
       });
-      await new Promise<void>((resolve) =>
-        requestAnimationFrame(() => requestAnimationFrame(() => resolve())),
-      );
+      // Settle React's queued effect microtasks, never a display frame. Clearing
+      // history after the committed replacement keeps the new file as baseline.
+      await Promise.resolve();
       api.history.clear();
       latestScene = sceneFrom(api);
       lastFingerprint = fingerprint(latestScene);
@@ -1152,61 +1157,56 @@ export function createController(api: ExcalidrawImperativeAPI, bridge: Bridge) {
         );
       }
       if (request.command === "view") {
-        if (args.ids) {
-          if (!Array.isArray(args.ids))
-            throw new AppError("INVALID_ARGUMENT", "ids must be an array.");
-          const ids = new Set(args.ids);
-          api.updateScene({
-            appState: {
-              selectedElementIds: Object.fromEntries(
-                [...ids].map((id) => [id, true]),
-              ),
-            },
-            captureUpdate: CaptureUpdateAction.NEVER,
-          });
-          if (args.focus)
-            api.scrollToContent(
-              api.getSceneElements().filter((e) => ids.has(e.id)),
-              { fitToContent: true, animate: false },
+        if (args.ids && !Array.isArray(args.ids))
+          throw new AppError("INVALID_ARGUMENT", "ids must be an array.");
+        const appState: any = {};
+        for (const k of ["scrollX", "scrollY"])
+          if (args[k] !== undefined) appState[k] = finite(args[k], k);
+        if (args.zoom !== undefined) {
+          finite(args.zoom, "zoom");
+          if (args.zoom < 0.1 || args.zoom > 30)
+            throw new AppError(
+              "INVALID_ARGUMENT",
+              "Zoom must be between 0.1 and 30.",
             );
+          appState.zoom = { value: args.zoom };
         }
-        if (
-          args.zoom !== undefined ||
-          args.scrollX !== undefined ||
-          args.scrollY !== undefined
-        ) {
-          const appState: any = {};
-          for (const k of ["scrollX", "scrollY"])
-            if (args[k] !== undefined) appState[k] = finite(args[k], k);
-          if (args.zoom !== undefined) {
-            finite(args.zoom, "zoom");
-            if (args.zoom < 0.1 || args.zoom > 30)
-              throw new AppError(
-                "INVALID_ARGUMENT",
-                "Zoom must be between 0.1 and 30.",
+        // Selection and nonanimated scrollToContent queue React state. Commit
+        // them synchronously before returning the viewport receipt; background
+        // agent commands cannot depend on requestAnimationFrame being scheduled.
+        flushSync(() => {
+          if (args.ids) {
+            const ids = new Set(args.ids);
+            api.updateScene({
+              appState: {
+                selectedElementIds: Object.fromEntries(
+                  [...ids].map((id) => [id, true]),
+                ),
+              },
+              captureUpdate: CaptureUpdateAction.NEVER,
+            });
+            if (args.focus)
+              api.scrollToContent(
+                api.getSceneElements().filter((e) => ids.has(e.id)),
+                { fitToContent: true, animate: false },
               );
-            appState.zoom = { value: args.zoom };
           }
-          api.updateScene({
-            appState,
-            captureUpdate: CaptureUpdateAction.NEVER,
-          });
-        }
-        if (args.focus && !args.ids)
-          api.scrollToContent(undefined, {
-            fitToContent: true,
-            animate: false,
-          });
-        if (
-          args.ids ||
-          args.focus ||
-          args.zoom !== undefined ||
-          args.scrollX !== undefined ||
-          args.scrollY !== undefined
-        )
-          await new Promise<void>((resolve) =>
-            requestAnimationFrame(() => resolve()),
-          );
+          if (
+            args.zoom !== undefined ||
+            args.scrollX !== undefined ||
+            args.scrollY !== undefined
+          ) {
+            api.updateScene({
+              appState,
+              captureUpdate: CaptureUpdateAction.NEVER,
+            });
+          }
+          if (args.focus && !args.ids)
+            api.scrollToContent(undefined, {
+              fitToContent: true,
+              animate: false,
+            });
+        });
         const current = api.getAppState();
         return success(
           receipt({

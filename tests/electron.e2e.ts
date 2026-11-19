@@ -40,7 +40,11 @@ type Workspace = {
   root: string;
   dataDirectory: string;
   drawingsDirectory: string;
-  cli: (command: string, payload?: Record<string, any>) => Promise<Reply>;
+  cli: (
+    command: string,
+    payload?: Record<string, any>,
+    timeoutMs?: number,
+  ) => Promise<Reply>;
   invoke: (request: Request) => Promise<Reply>;
   installedLauncher: (launcher: string, args: string[]) => Promise<string>;
   restartAfterCrash: () => Promise<void>;
@@ -166,7 +170,7 @@ const test = base.extend<{ workspace: Workspace }>({
           request,
         );
       },
-      async cli(command, payload = {}) {
+      async cli(command, payload = {}, timeoutMs = 60_000) {
         const input = path.join(root, `input-${randomUUID()}.json`);
         await writeFile(input, JSON.stringify(payload), { mode: 0o600 });
         try {
@@ -178,7 +182,7 @@ const test = base.extend<{ workspace: Workspace }>({
             {
               cwd: repository,
               env: environment,
-              timeout: 60_000,
+              timeout: timeoutMs,
               maxBuffer: 32 * 1024 * 1024,
             },
           );
@@ -1812,7 +1816,7 @@ test("closing a Mac window unloads the document while activation returns to the 
 test("CLI quit refuses unsaved work and acknowledges a clean shutdown before exiting", async ({
   workspace,
 }) => {
-  await create(workspace, "Quit without losing a thought");
+  const drawing = await create(workspace, "Quit without losing a thought");
   result(
     await apply(workspace, [
       {
@@ -1828,10 +1832,23 @@ test("CLI quit refuses unsaved work and acknowledges a clean shutdown before exi
   expect(workspace.application.process().exitCode).toBeNull();
   expect(result(await workspace.cli("status")).active).not.toBeNull();
   result(await workspace.cli("save", await target(workspace)));
+  const savedBytes = await readFile(drawing.path);
+  await workspace.application.evaluate(({ BrowserWindow }) =>
+    BrowserWindow.getAllWindows()[0].hide(),
+  );
+  // CDP can keep document.visibilityState visible; assert the native window,
+  // and cover actual production throttling in native-background.ts without CDP.
+  expect(
+    await workspace.application.evaluate(({ BrowserWindow }) =>
+      BrowserWindow.getAllWindows()[0].isVisible(),
+    ),
+  ).toBe(false);
   const ownedProcess = workspace.application.process();
   const exited = once(ownedProcess, "exit");
-  const reply = result(await workspace.cli("quit"));
+  const started = Date.now();
+  const reply = result(await workspace.cli("quit", {}, 5_000));
   expect(reply.closing).toBe(true);
+  expect(Date.now() - started).toBeLessThan(5_000);
   await Promise.race([
     exited,
     new Promise((_, reject) => {
@@ -1846,6 +1863,7 @@ test("CLI quit refuses unsaved work and acknowledges a clean shutdown before exi
     }),
   ]);
   expect(ownedProcess.exitCode).toBe(0);
+  expect(await readFile(drawing.path)).toEqual(savedBytes);
 });
 
 test("read-only observer commands cannot retarget the UI Stop action", async ({
@@ -3029,4 +3047,69 @@ test("selected-frame PNG and SVG exports clip children to the frame and report a
     });
   }
   expect(await readFile(file, "utf8")).toBe(fixtureBytes);
+});
+
+test("a hidden renderer updates its viewport and selection without waiting for a display frame", async ({
+  workspace,
+}) => {
+  const drawing = await create(workspace, "Background agent viewport");
+  const batch = result(
+    await apply(workspace, [
+      {
+        op: "create",
+        ref: "background",
+        type: "rectangle",
+        x: 220,
+        y: 180,
+        width: 200,
+        height: 100,
+        label: "Available in the background",
+      },
+    ]),
+  );
+  const id = batch.created.find((entry: any) => entry.ref === "background").id;
+  result(await workspace.cli("save", await target(workspace)));
+  const savedBytes = await readFile(drawing.path),
+    before = await snapshot(workspace);
+  await workspace.application.evaluate(({ BrowserWindow }) =>
+    BrowserWindow.getAllWindows()[0].hide(),
+  );
+  // CDP can keep document.visibilityState visible; assert the native window,
+  // and cover actual production throttling in native-background.ts without CDP.
+  expect(
+    await workspace.application.evaluate(({ BrowserWindow }) =>
+      BrowserWindow.getAllWindows()[0].isVisible(),
+    ),
+  ).toBe(false);
+  const started = Date.now();
+  const view = result(
+    await workspace.cli(
+      "view",
+      {
+        document: before.document,
+        epoch: before.epoch,
+        ids: [id],
+        zoom: 1.25,
+        scrollX: 25,
+        scrollY: 35,
+      },
+      5_000,
+    ),
+  );
+  expect(Date.now() - started).toBeLessThan(5_000);
+  expect(view.selection).toEqual([id]);
+  expect(view.zoom).toBe(1.25);
+  expect(view.scrollX).toBe(25);
+  expect(view.scrollY).toBe(35);
+  expect(view.revision).toBe(before.revision);
+  const after = await snapshot(workspace);
+  expect(after.revision).toBe(before.revision);
+  expect(after.elements).toEqual(before.elements);
+  expect(result(await workspace.cli("status")).dirty).toBe(false);
+  expect(await readFile(drawing.path)).toEqual(savedBytes);
+  expect(
+    await workspace.application.evaluate(({ BrowserWindow }) =>
+      BrowserWindow.getAllWindows()[0].isVisible(),
+    ),
+  ).toBe(false);
 });
