@@ -25,3 +25,7 @@ The script verifies access before building both Mac architectures and requires t
 For each final artifact, inspect the signature and expected TeamIdentifier, validate stapling, assess Gatekeeper, and perform the native install/reopen workflow on its actual architecture. These checks must reference the final build/commit. A development build or an older signed package does not pass the final artifact gate.
 
 Useful Apple references: [notarization workflow](https://developer.apple.com/documentation/security/notarizing-macos-software-before-distribution), [notarytool and Keychain profiles](https://developer.apple.com/documentation/technotes/tn3147-migrating-to-the-latest-notarization-tool).
+
+## Download-trust assessment
+
+The signed synthetic-content desktop package at source commit `ca19157` passed deep/strict signature verification. An actual `spctl --assess --type execute` check rejected it with `source=Unnotarized Developer ID`. This confirms that local signing is working and that it is not yet a trusted downloaded-app release. No Gatekeeper bypass is part of the installer.

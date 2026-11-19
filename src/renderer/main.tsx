@@ -540,9 +540,11 @@ function App() {
           <div className="error-banner" role="alert">
             <AlertCircle size={16} />
             <span>{error}</span>
-            {active && !error.includes("no longer at its saved location") && (
-              <button onClick={() => request("save-as")}>Save a copy…</button>
-            )}
+            {active &&
+              (host as any)?.saveError &&
+              !error.includes("no longer at its saved location") && (
+                <button onClick={() => request("save-as")}>Save a copy…</button>
+              )}
             <IconButton
               label="Dismiss message"
               onClick={() => {
@@ -713,7 +715,12 @@ function App() {
                     toggleTheme: false,
                   },
                 }}
-                onLinkOpen={(_element, event) => event.preventDefault()}
+                onLinkOpen={(element, event) => {
+                  if (element.link?.startsWith("#")) return;
+                  event.preventDefault();
+                  if (element.link)
+                    void request("open-link", { url: element.link });
+                }}
                 renderTopRightUI={() => null}
               >
                 <MainMenu>
@@ -1751,6 +1758,12 @@ function App() {
                   Anyone with an editable export can reopen its original drawing
                   data.
                 </p>
+                {format === "svg" && (
+                  <p className="small muted">
+                    SVG keeps vector elements, links and original image
+                    resources. Choose PNG to share only rendered pixels.
+                  </p>
+                )}
               </>
             )}
             <div className="button-row">
@@ -1758,6 +1771,25 @@ function App() {
                 <Download size={16} />
                 {busy ? "Exporting…" : "Export…"}
               </button>
+              {format === "svg" && (
+                <button
+                  type="button"
+                  className="secondary"
+                  disabled={busy || !exportPreview}
+                  onClick={() =>
+                    request("copy-svg", {
+                      previewToken: exportPreview?.previewToken,
+                    }).then((result) => {
+                      if (result) {
+                        setModal(null);
+                        setNotice("SVG copied.");
+                      }
+                    })
+                  }
+                >
+                  Copy SVG
+                </button>
+              )}
               <button type="button" onClick={() => setModal(null)}>
                 Cancel
               </button>

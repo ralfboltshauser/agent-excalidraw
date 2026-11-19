@@ -259,7 +259,12 @@ export function shapeFor(name: string): Record<string, z.ZodTypeAny> {
         "One validated visible batch; create refs can be used by later arrow from/to",
       );
   if (["new", "duplicate", "path-suggest"].includes(name)) {
-    shape.title = z.string().optional();
+    shape.title = z
+      .string()
+      .optional()
+      .describe(
+        "Suggested filename when path is omitted. An explicit path determines the displayed filename.",
+      );
     shape.projectDir = z.string().optional();
   }
   if (["new", "duplicate", "open", "move", "save-as"].includes(name))

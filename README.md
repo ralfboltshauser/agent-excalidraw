@@ -85,6 +85,6 @@ Manual editing is designed to work offline with bundled editor assets. Installat
 
 ## Build with us
 
-[Contributing](CONTRIBUTING.md) · [Architecture](docs/architecture.md) · [Product flows](docs/design/product-and-flows.md) · [Milestones](docs/design/milestones.md) · [Release guide](docs/releases.md)
+[Example drawings](examples/README.md) · [Contributing](CONTRIBUTING.md) · [Architecture](docs/architecture.md) · [Product flows](docs/design/product-and-flows.md) · [Milestones](docs/design/milestones.md) · [Release guide](docs/releases.md)
 
 Original code is [MIT licensed](LICENSE). This independent project is not an official Excalidraw release. Excalidraw, Electron, fonts and other dependencies retain their own licenses; see [third-party notices](docs/THIRD_PARTY_NOTICES.md).

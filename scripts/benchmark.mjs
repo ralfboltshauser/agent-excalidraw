@@ -19,7 +19,8 @@ import {
 import path from "node:path";
 import os from "node:os";
 import { fileURLToPath } from "node:url";
-import { randomUUID } from "node:crypto";
+import { randomUUID, createHash } from "node:crypto";
+import { createReadStream } from "node:fs";
 import { performance } from "node:perf_hooks";
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
@@ -260,6 +261,44 @@ async function memory(label, cycle = 0) {
     processes,
   });
 }
+async function panDiagnostic() {
+  const before = await invoke("snapshot", { limit: 1 });
+  const canvas = await page.locator("canvas.excalidraw__canvas.interactive").boundingBox();
+  if (!canvas) throw new Error("No real interactive canvas for the pan diagnostic");
+  const start = { x: canvas.x + canvas.width * .65, y: canvas.y + canvas.height * .65 };
+  await page.mouse.click(start.x, start.y);
+  const idle = await page.evaluate(() => new Promise(resolve => {
+    const deltas = []; let last = performance.now(); const start = last;
+    const frame = now => { deltas.push(now - last); last = now; if (now - start < 800) requestAnimationFrame(frame); else resolve(deltas.slice(1)); };
+    requestAnimationFrame(frame);
+  }));
+  await page.evaluate(() => {
+    const probe = globalThis.__aePanProbe = { active: true, frames: [], dispatchDelay: [], last: performance.now() };
+    probe.listener = event => { if (probe.active) probe.dispatchDelay.push(Math.max(0, performance.now() - event.timeStamp)); };
+    document.addEventListener("pointermove", probe.listener, true);
+    const frame = now => { if (!probe.active) return; probe.frames.push(now - probe.last); probe.last = now; requestAnimationFrame(frame); };
+    requestAnimationFrame(frame);
+  });
+  try {
+    await page.keyboard.down("Space"); await page.mouse.down();
+    for (let i = 1; i <= 60; i++) {
+      const angle = i / 60 * Math.PI * 2;
+      await page.mouse.move(start.x + Math.sin(angle) * 110, start.y + Math.sin(angle / 2) * 65);
+      await new Promise(resolve => setTimeout(resolve, 16));
+    }
+  } finally { await page.mouse.up(); await page.keyboard.up("Space"); }
+  const active = await page.evaluate(() => {
+    const probe = globalThis.__aePanProbe; probe.active = false;
+    document.removeEventListener("pointermove", probe.listener, true);
+    return { frames: probe.frames.slice(1), dispatchDelay: probe.dispatchDelay };
+  });
+  const after = await invoke("snapshot", { limit: 1 });
+  if (after.revision !== before.revision) throw new Error("Pan diagnostic unexpectedly edited document content");
+  const summary = values => values.length ? { ...summarize(values), sufficientSamplesForPlannedP95Gate: false } : null;
+  report.frameInput = { fixture: "medium", idleFrameIntervals: summary(idle), panFrameIntervals: summary(active.frames), injectedPointerDispatchDelay: summary(active.dispatchDelay), contentRevisionUnchanged: true, limitations: "One synthetic Space-drag journey. Frame samples are correlated within one run; pointer delay measures capture-listener dispatch, not full handler duration or physical hardware latency. No automatic frame/input gate acceptance." };
+  await persist();
+  console.log(`mediumPan: frame p95=${report.frameInput.panFrameIntervals?.nearestRankP95Ms}ms; pointer dispatch p95=${report.frameInput.injectedPointerDispatchDelay?.nearestRankP95Ms}ms`);
+}
 async function createFixtures() {
   await invoke("settings", { defaultFolder: drawings, theme: "light" });
   const seedPath = path.join(drawings, "Fixture seed.excalidraw");
@@ -425,6 +464,16 @@ try {
       report.runtime.electron = await application.evaluate(
         () => process.versions,
       );
+      const applicationPath = await application.evaluate(({ app }) =>
+        app.getAppPath(),
+      );
+      report.runtime.applicationPath = applicationPath;
+      if (applicationPath.endsWith(".asar")) {
+        const hash = createHash("sha256");
+        for await (const chunk of createReadStream(applicationPath))
+          hash.update(chunk);
+        report.runtime.appArchiveSha256 = hash.digest("hex");
+      }
       await page.screenshot({
         path: path.join(artifactRoot, "01-cold-usable.png"),
       });
@@ -470,6 +519,7 @@ try {
     elements: observedMedium.total,
     images: 12,
   };
+  await panDiagnostic();
   await open(fixtures.small);
   await page.screenshot({
     path: path.join(artifactRoot, "02-small-fixture.png"),

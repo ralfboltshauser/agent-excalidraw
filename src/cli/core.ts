@@ -13,7 +13,7 @@ agent-excalidraw skills install --home /tmp/excalidraw-trial --data-dir /tmp/exc
 
 ## Choose the file
 
-Honor an explicit path. For an existing drawing, use list --query <name or path> --json and open --path <absolute path>; compare full paths before choosing among equal names. Library results are paginated: follow nextOffset until null when you need all matches. status returns a count, not every private filename. For a new idea use new --title <purpose> --project-dir <current project> --json. This chooses a collision-free file under the configured drawing root, outside the repository by default. A request merely to launch the workspace uses launch, not new. Leave the app open after drawing unless asked to close it. The quit command closes only after saved work; unsaved agent shutdown is refused.
+Honor an explicit path. The displayed drawing name follows its filename; --title suggests a filename only when --path is omitted. For an existing drawing, use list --query <name or path> --json and open --path <absolute path>; compare full paths before choosing among equal names. Library results are paginated: follow nextOffset until null when you need all matches. status returns a count, not every private filename. For a new idea use new --title <purpose> --project-dir <current project> --json. This chooses a collision-free file under the configured drawing root, outside the repository by default. A request merely to launch the workspace uses launch, not new. Leave the app open after drawing unless asked to close it. The quit command closes only after saved work; unsaved agent shutdown is refused.
 
 ## Edit the live document
 

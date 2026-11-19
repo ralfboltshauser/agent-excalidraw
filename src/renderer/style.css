@@ -1096,3 +1096,10 @@ code {
   font-size: 12px;
   text-align: center;
 }
+
+/* Pinned SDK 0.18.1 exposes this context action outside UIOptions. Its SVG
+   clipboard exporter skips our self-contained font guard. Use Export → SVG →
+   Copy SVG instead. The stock action has no shortcut; PNG copy stays available. */
+.excalidraw .context-menu [data-testid="copyAsSvg"] {
+  display: none;
+}

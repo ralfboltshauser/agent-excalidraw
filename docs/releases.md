@@ -17,7 +17,7 @@ npm ci
 npm run dev
 ```
 
-`npm ci` downloads locked dependencies and the Electron runtime. `npm run dev` builds and starts the actual app. Use `npm run build` followed by `npm start` to start an already built checkout. Keep that checkout in place if you install a launcher pointing into it.
+`npm ci` installs locked dependencies. The pinned Electron runtime is downloaded on first use (or explicitly with `node node_modules/electron/install.js`). `npm run dev` builds and starts the actual app. Use `npm run build` followed by `npm start` to start an already built checkout. Keep that checkout in place if you install a launcher pointing into it.
 
 `npm run package` creates a native development application directory under `release/`. A locally created package is not the same as a signed public download. Development and CI packages are labeled accordingly.
 

@@ -14,6 +14,7 @@ import type {
   BinaryFiles,
 } from "@excalidraw/excalidraw/types";
 import { flushSync } from "react-dom";
+import { makeSvgSelfContained } from "./svg-export";
 import {
   AppError,
   blankScene,
@@ -1220,19 +1221,26 @@ export function createController(api: ExcalidrawImperativeAPI, bridge: Bridge) {
         const captured = clone(sceneFrom(api)),
           capturedReceipt = receipt();
         const format = args.format || "png";
-        if (format === "excalidraw" || format === "json")
-          return success({
-            ...capturedReceipt,
-            data: btoa(
-              unescape(encodeURIComponent(JSON.stringify(captured, null, 2))),
-            ),
-            mime: "application/vnd.excalidraw+json",
-          });
+        if (!["png", "svg"].includes(format))
+          throw new AppError(
+            "INVALID_ARGUMENT",
+            "Scene rendering supports PNG or SVG.",
+          );
         const ids = args.ids
           ? new Set(args.ids)
           : args.selection
             ? new Set(Object.keys(api.getAppState().selectedElementIds))
             : null;
+        const exportingFrame =
+          ids?.size === 1
+            ? captured.elements.find(
+                (element) =>
+                  !element.isDeleted &&
+                  ids.has(element.id) &&
+                  (element.type === "frame" || element.type === "magicframe"),
+              )
+            : undefined;
+        const padding = exportingFrame ? 0 : 20;
         if (ids) {
           for (const element of captured.elements)
             if (element.frameId && ids.has(element.frameId))
@@ -1248,20 +1256,31 @@ export function createController(api: ExcalidrawImperativeAPI, bridge: Bridge) {
             "EMPTY_DRAWING",
             "Add a shape before rendering this drawing.",
           );
+        const scale = args.scale ?? 1;
+        if (typeof scale !== "number" || scale < 0.1 || scale > 4)
+          throw new AppError(
+            "INVALID_ARGUMENT",
+            "Export scale must be between 0.1 and 4.",
+          );
         const appState = {
           ...captured.appState,
+          exportScale: scale,
           exportBackground: args.background !== false,
           exportEmbedScene: args.embedScene === true,
           exportWithDarkMode: false,
         };
-        const bounds = getCommonBounds(elements as any);
+        const bounds = getCommonBounds(
+          (exportingFrame ? [exportingFrame] : elements) as any,
+        );
         if (format === "svg") {
           const svg = await exportToSvg({
             elements: elements as any,
             appState: appState as any,
             files: captured.files,
-            exportPadding: 20,
+            exportPadding: padding,
+            exportingFrame: exportingFrame as any,
           });
+          await makeSvgSelfContained(svg);
           const encoded = new TextEncoder().encode(
             new XMLSerializer().serializeToString(svg),
           );
@@ -1272,21 +1291,24 @@ export function createController(api: ExcalidrawImperativeAPI, bridge: Bridge) {
             data: btoa(str),
             mime: "image/svg+xml",
             bounds,
+            scale,
+            width: Number(svg.getAttribute("width")),
+            height: Number(svg.getAttribute("height")),
+            transform: {
+              sceneOrigin: [bounds[0] - padding, bounds[1] - padding],
+              scale,
+            },
           });
         }
         if (format !== "png")
+          throw new AppError("INVALID_ARGUMENT", "Format must be png or svg.");
+        const pixelWidth = (bounds[2] - bounds[0] + padding * 2) * scale,
+          pixelHeight = (bounds[3] - bounds[1] + padding * 2) * scale;
+        if (pixelWidth < 1 || pixelHeight < 1)
           throw new AppError(
-            "INVALID_ARGUMENT",
-            "Format must be png, svg or excalidraw.",
+            "RENDER_TOO_SMALL",
+            "This frame is smaller than one pixel at the requested scale. Increase scale or export SVG.",
           );
-        const scale = args.scale ?? 1;
-        if (typeof scale !== "number" || scale < 0.1 || scale > 4)
-          throw new AppError(
-            "INVALID_ARGUMENT",
-            "Export scale must be between 0.1 and 4.",
-          );
-        const pixelWidth = (bounds[2] - bounds[0] + 40) * scale,
-          pixelHeight = (bounds[3] - bounds[1] + 40) * scale;
         if (
           pixelWidth > 16384 ||
           pixelHeight > 16384 ||
@@ -1301,7 +1323,8 @@ export function createController(api: ExcalidrawImperativeAPI, bridge: Bridge) {
           appState: appState as any,
           files: captured.files,
           mimeType: "image/png",
-          exportPadding: 20,
+          exportPadding: padding,
+          exportingFrame: exportingFrame as any,
           getDimensions: (width: number, height: number) => ({
             width: width * scale,
             height: height * scale,
@@ -1317,9 +1340,12 @@ export function createController(api: ExcalidrawImperativeAPI, bridge: Bridge) {
           mime: "image/png",
           bounds,
           scale,
-          transform: { sceneOrigin: [bounds[0] - 20, bounds[1] - 20], scale },
-          width: Math.ceil(pixelWidth),
-          height: Math.ceil(pixelHeight),
+          transform: {
+            sceneOrigin: [bounds[0] - padding, bounds[1] - padding],
+            scale,
+          },
+          width: new DataView(bytes.buffer).getUint32(16),
+          height: new DataView(bytes.buffer).getUint32(20),
         });
       }
       throw new AppError(

@@ -22,6 +22,7 @@ import {
   unlink,
   stat,
   readdir,
+  rename,
 } from "node:fs/promises";
 import path from "node:path";
 import os from "node:os";
@@ -451,7 +452,7 @@ async function execute(request: Request, fromAgent = false): Promise<any> {
     case "remove-integrations":
       return removeIntegrations();
     case "reveal-data":
-      shell.showItemInFolder(path.join(dataDir, "library.json"));
+      await shell.showItemInFolder(path.join(dataDir, "library.json"));
       return { path: dataDir };
     case "clear-previews": {
       const directory = path.join(dataDir, "previews");
@@ -651,10 +652,10 @@ async function execute(request: Request, fromAgent = false): Promise<any> {
       return { drawing };
     }
     case "reveal":
-      if (store.active) shell.showItemInFolder(store.active.path);
+      if (store.active) await shell.showItemInFolder(store.active.path);
       return { path: store.active?.path };
     case "copy-path":
-      clipboard.writeText(store.active?.path || "");
+      await clipboard.writeText(store.active?.path || "");
       return { copied: true };
     case "star":
       await store.star(args.id, args.value);
@@ -813,6 +814,22 @@ async function execute(request: Request, fromAgent = false): Promise<any> {
         height: rendered.height,
       };
     }
+    case "copy-svg": {
+      const preview = exportPreviews.get(args.previewToken);
+      if (!preview || preview.format !== "svg")
+        throw new AppError(
+          "PREVIEW_EXPIRED",
+          "Prepare an SVG preview before copying.",
+        );
+      await clipboard.writeText(
+        Buffer.from(preview.rendered.data, "base64").toString("utf8"),
+      );
+      return {
+        copied: true,
+        revision: preview.rendered.revision,
+        document: preview.rendered.document,
+      };
+    }
     case "export":
     case "render": {
       if (command === "export" && args.previewToken) {
@@ -855,7 +872,12 @@ async function execute(request: Request, fromAgent = false): Promise<any> {
           previewMatched: true,
         };
       }
-      if (command === "export" && args.format === "excalidraw") {
+      if (args.format && !["png", "svg", "excalidraw"].includes(args.format))
+        throw new AppError(
+          "INVALID_ARGUMENT",
+          "Format must be png, svg or excalidraw.",
+        );
+      if (args.format === "excalidraw") {
         const captured = await capture();
         const output =
           args.output ||
@@ -865,8 +887,14 @@ async function execute(request: Request, fromAgent = false): Promise<any> {
             })
           ).filePath;
         if (!output) throw new AppError("CANCELLED", "Export cancelled.");
+        await mkdir(path.dirname(output), { recursive: true });
         await writeFile(output, sceneBytes(captured.scene), { flag: "wx" });
-        return { path: output, revision: captured.revision };
+        return {
+          path: output,
+          revision: captured.revision,
+          document: store.active?.id,
+          epoch,
+        };
       }
       const rendered = await scene({ ...request, command: "render" });
       const format = args.format === "svg" ? "svg" : "png";
@@ -926,14 +954,66 @@ async function execute(request: Request, fromAgent = false): Promise<any> {
         available: release.tag_name !== "v" + app.getVersion(),
       };
     }
-    case "open-notices":
-      await shell.openPath(path.resolve(here, "../THIRD_PARTY_NOTICES.md"));
-      return {};
+    case "open-notices": {
+      // Native apps cannot resolve Electron's virtual ASAR filesystem. Publish a
+      // physical, self-contained copy of the bundled license text before opening.
+      const output = path.join(dataDir, "third-party-licenses.txt");
+      const temporary = output + "." + randomUUID() + ".tmp";
+      try {
+        await writeFile(
+          temporary,
+          await readFile(path.resolve(here, "../THIRD_PARTY_LICENSES.txt")),
+          { flag: "wx", mode: 0o600 },
+        );
+        await rename(temporary, output);
+      } finally {
+        await unlink(temporary).catch(() => {});
+      }
+      const error = await shell.openPath(output);
+      if (error)
+        throw new AppError(
+          "OPEN_FAILED",
+          "The bundled licenses were saved at " +
+            output +
+            ", but the system could not open them.",
+        );
+      return { path: output, opened: true };
+    }
     case "open-releases":
       await shell.openExternal(
         "https://github.com/ralfboltshauser/agent-excalidraw/releases",
       );
       return {};
+    case "open-link": {
+      if (typeof args.url !== "string" || args.url.length > 16384)
+        throw new AppError("INVALID_LINK", "This drawing link is invalid.");
+      let url: URL;
+      try {
+        url = new URL(args.url);
+      } catch {
+        throw new AppError(
+          "INVALID_LINK",
+          "This drawing link is not a valid URL.",
+        );
+      }
+      if (url.protocol === "https:" || url.protocol === "http:") {
+        await shell.openExternal(url.href);
+        return { opened: true };
+      }
+      if (
+        url.protocol === "file:" &&
+        (!url.hostname || url.hostname === "localhost") &&
+        url.pathname.toLowerCase().endsWith(".excalidraw")
+      )
+        return execute(
+          { command: "open", args: { path: fileURLToPath(url) } },
+          false,
+        );
+      throw new AppError(
+        "UNSUPPORTED_LINK",
+        "Only web links and local .excalidraw file links can be opened. Copy other links from the editor.",
+      );
+    }
     case "window-close": {
       if (process.platform !== "darwin")
         return execute({ command: "quit" }, fromAgent);

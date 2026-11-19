@@ -17,7 +17,13 @@ const repository = path.resolve(
   path.dirname(fileURLToPath(import.meta.url)),
   "..",
 );
-const output = path.join(repository, "artifacts", "offline-audit");
+const artifactBase = path.join(repository, "artifacts", "offline-audit");
+const output = path.join(
+  artifactBase,
+  new Date().toISOString().replace(/[:.]/g, "-") +
+    "-" +
+    randomUUID().slice(0, 6),
+);
 const home = await mkdtemp(
   path.join(
     process.platform === "darwin" ? "/tmp" : os.tmpdir(),
@@ -50,6 +56,7 @@ const assetInputs = Object.values(fontManifest.families)
 const report = {
   started: new Date().toISOString(),
   home,
+  artifactDirectory: output,
   platform: process.platform,
   arch: process.arch,
   osRelease: os.release(),
@@ -98,6 +105,12 @@ async function persist() {
     JSON.stringify(report, null, 2) + "\n",
   );
   await writeFile(path.join(output, "native-process.log"), processLog.join(""));
+  // Stable latest report plus immutable per-run exports: repeated audits must
+  // not collide with the app's deliberate exclusive export writes.
+  await writeFile(
+    path.join(artifactBase, "report.json"),
+    JSON.stringify(report, null, 2) + "\n",
+  );
 }
 async function invoke(command, args = {}, context = {}) {
   return result(
@@ -560,10 +573,53 @@ async function exercise(profile) {
         "PNG export signature is invalid",
       );
     if (format === "svg") {
-      profile.svgRemoteAssets = await page.evaluate((text) => {
+      profile.svgRemoteAssets = await page.evaluate(async (text) => {
         const document = new DOMParser().parseFromString(text, "image/svg+xml");
+        const styles = [...document.querySelectorAll("style")].map(
+          (style) => style.textContent || "",
+        );
+        const fallback = styles
+          .flatMap((css) =>
+            [...css.matchAll(/@font-face\s*\{[^{}]*\}/gi)].map(
+              (match) => match[0],
+            ),
+          )
+          .find((rule) =>
+            /font-family\s*:\s*(?:"Liberation Sans"|'Liberation Sans'|Liberation\s+Sans)\s*;/i.test(
+              rule,
+            ),
+          );
+        const dataUrl =
+          fallback &&
+          /url\(\s*["']?(data:[^"')\s]+)["']?\s*\)/i.exec(fallback)?.[1];
+        let agentSansSha256 = null;
+        if (dataUrl?.includes(";base64,")) {
+          const bytes = Uint8Array.from(atob(dataUrl.split(",")[1]), (value) =>
+            value.charCodeAt(0),
+          );
+          agentSansSha256 = [
+            ...new Uint8Array(await crypto.subtle.digest("SHA-256", bytes)),
+          ]
+            .map((value) => value.toString(16).padStart(2, "0"))
+            .join("");
+        }
+        const fontNotice =
+          document.querySelector("metadata[data-agent-excalidraw-font-notices]")
+            ?.textContent || "";
         return {
           parserErrors: document.querySelectorAll("parsererror").length,
+          agentSansSha256,
+          fontNotices: {
+            characters: fontNotice.length,
+            agentSans: fontNotice.includes("Agent Sans Regular"),
+            fullOfl:
+              fontNotice.includes("SIL OPEN FONT LICENSE") &&
+              fontNotice.includes("Version 1.1") &&
+              fontNotice.includes("TERMINATION") &&
+              fontNotice.includes("DISCLAIMER"),
+            copyrightGoogle: /2010 Google Corporation/.test(fontNotice),
+            copyrightRedHat: /2012 Red Hat, Inc/.test(fontNotice),
+          },
           remoteImages: [...document.querySelectorAll("image")]
             .map(
               (image) =>
@@ -572,11 +628,27 @@ async function exercise(profile) {
                 "",
             )
             .filter((url) => /^https?:/.test(url)),
-          remoteCss: [...document.querySelectorAll("style")]
-            .map((style) => style.textContent)
-            .filter((text) => /url\(["']?https?:/i.test(text)),
+          remoteCss: [...document.querySelectorAll("style")].flatMap((style) =>
+            [
+              ...(style.textContent || "").matchAll(
+                /url\(\s*["']?(https?:[^\s"')]+)/gi,
+              ),
+            ].map((match) => match[1]),
+          ),
         };
       }, bytes.toString("utf8"));
+      check(
+        profile.svgRemoteAssets.agentSansSha256 ===
+          fontManifest.replacement.replacementSha256,
+        "SVG did not embed the exact verified Agent Sans replacement",
+      );
+      check(
+        profile.svgRemoteAssets.fontNotices.agentSans &&
+          profile.svgRemoteAssets.fontNotices.fullOfl &&
+          profile.svgRemoteAssets.fontNotices.copyrightGoogle &&
+          profile.svgRemoteAssets.fontNotices.copyrightRedHat,
+        "SVG embedded font is missing its complete copyright/OFL notice",
+      );
       check(
         profile.svgRemoteAssets.parserErrors === 0 &&
           !profile.svgRemoteAssets.remoteImages.length &&

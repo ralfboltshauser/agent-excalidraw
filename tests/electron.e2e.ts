@@ -20,10 +20,11 @@ import {
 } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import { fileURLToPath } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 import { randomUUID } from "node:crypto";
 import { once } from "node:events";
 import type { Reply, Request } from "../src/shared/types";
+import { killOwnedProcessTree } from "./helpers/owned-process";
 
 const execute = promisify(execFile);
 const repository = path.resolve(
@@ -41,6 +42,7 @@ type Workspace = {
   drawingsDirectory: string;
   cli: (command: string, payload?: Record<string, any>) => Promise<Reply>;
   invoke: (request: Request) => Promise<Reply>;
+  installedLauncher: (launcher: string, args: string[]) => Promise<string>;
   restartAfterCrash: () => Promise<void>;
   screenshot: (name: string) => Promise<void>;
 };
@@ -59,20 +61,7 @@ function live(elements: any[]) {
 }
 
 async function crashOwnedApplication(application: ElectronApplication) {
-  const child = application.process();
-  if (child.exitCode !== null || child.signalCode !== null) return;
-  const exited = once(child, "exit");
-  // Terminating just electron.exe can leave Chromium descendants holding the
-  // Windows process-singleton resources. Kill only this fixture's owned tree.
-  if (process.platform === "win32") {
-    await execute("taskkill", ["/PID", String(child.pid), "/T", "/F"], {
-      windowsHide: true,
-      timeout: 15_000,
-    });
-  } else {
-    child.kill("SIGKILL");
-  }
-  await exited;
+  await killOwnedProcessTree(application.process());
 }
 
 const test = base.extend<{ workspace: Workspace }>({
@@ -204,6 +193,26 @@ const test = base.extend<{ workspace: Workspace }>({
           }
           throw error;
         }
+      },
+      async installedLauncher(launcher, args) {
+        // Deliberately remove external Node from PATH: the installed launcher
+        // must use its absolute bundled Electron runtime, including inside ASAR.
+        const options = {
+          cwd: root,
+          env: { ...environment, PATH: path.dirname(launcher) },
+          timeout: 30_000,
+          maxBuffer: 4 * 1024 * 1024,
+          windowsHide: true,
+        };
+        const { stdout } =
+          process.platform === "win32"
+            ? await execute(
+                process.env.ComSpec || "cmd.exe",
+                ["/d", "/s", "/c", `""${launcher}" ${args.join(" ")}"`],
+                { ...options, windowsVerbatimArguments: true },
+              )
+            : await execute(launcher, args, options);
+        return stdout.trim();
       },
       async restartAfterCrash() {
         await crashOwnedApplication(current);
@@ -623,6 +632,111 @@ test("real CLI creates, binds, edits, renders, saves and reopens with one native
       await apply(workspace, [{ op: "update", id: first, x: 900 }], afterMove),
     ),
   ).toBe("STALE_EPOCH");
+
+  // Exercise the SDK's actual hyperlink popup and onLinkOpen callback. Only
+  // opening the external browser is replaced; no editor callback is mocked.
+  const webLink =
+    "https://example.com/agent-excalidraw-drawing-link?from=canvas";
+  result(await apply(workspace, [{ op: "update", id: first, link: webLink }]));
+  await workspace.application.evaluate(({ shell }) => {
+    const state = { original: shell.openExternal, urls: [] as string[] };
+    (globalThis as any).__e2eExternalLinks = state;
+    shell.openExternal = async (url) => {
+      state.urls.push(url);
+    };
+  });
+  let externalLinks: string[] = [];
+  try {
+    await focusCanvas(workspace.page);
+    result(
+      await workspace.cli("view", {
+        ...(await target(workspace)),
+        ids: [first],
+        focus: true,
+      }),
+    );
+    await workspace.page.keyboard.press(`${modifier}+k`);
+    const linkInput = workspace.page.locator(
+      ".excalidraw-hyperlinkContainer-input",
+    );
+    await expect(linkInput).toHaveValue(webLink);
+    await linkInput.press("Enter");
+    const link = workspace.page.locator("a.excalidraw-hyperlinkContainer-link");
+    await expect(link).toHaveAttribute("href", webLink);
+    await workspace.screenshot("04-sdk-drawing-hyperlink");
+    await link.click();
+    await expect
+      .poll(() =>
+        workspace.application.evaluate(
+          () => (globalThis as any).__e2eExternalLinks.urls,
+        ),
+      )
+      .toEqual([webLink]);
+    for (const url of [
+      "javascript:alert(1)",
+      "data:text/html,private",
+      "file://remote-host/private.excalidraw",
+    ]) {
+      const rejected = await workspace.invoke({
+        command: "open-link",
+        args: { url },
+      });
+      expect(rejected.ok).toBe(false);
+      expect(errorCode(rejected)).toBe("UNSUPPORTED_LINK");
+    }
+  } finally {
+    externalLinks = await workspace.application.evaluate(({ shell }) => {
+      const state = (globalThis as any).__e2eExternalLinks;
+      shell.openExternal = state.original;
+      delete (globalThis as any).__e2eExternalLinks;
+      return state.urls;
+    });
+  }
+  expect(externalLinks).toEqual([webLink]);
+  const linkedPath = path.join(
+    workspace.drawingsDirectory,
+    "Linked local drawing.excalidraw",
+  );
+  const linkedBytes = JSON.stringify({
+    type: "excalidraw",
+    version: 2,
+    source: "e2e-local-link",
+    elements: [],
+    appState: { viewBackgroundColor: "#ffffff" },
+    files: {},
+  });
+  await writeFile(linkedPath, linkedBytes);
+  const beforeLink = await snapshot(workspace);
+  const restoreGuard = await automateNativeDialog(workspace, {
+    kind: "message",
+    detail: "Your drawing has unsaved changes.",
+    response: 2,
+  });
+  try {
+    expect(
+      errorCode(
+        await workspace.invoke({
+          command: "open-link",
+          args: { url: pathToFileURL(linkedPath).href },
+        }),
+      ),
+    ).toBe("CANCELLED");
+  } finally {
+    await restoreGuard();
+  }
+  expect((await snapshot(workspace)).document).toBe(beforeLink.document);
+  expect(result(await workspace.cli("status")).dirty).toBe(true);
+  expect(await readFile(linkedPath, "utf8")).toBe(linkedBytes);
+  result(await workspace.cli("save", await target(workspace)));
+  result(
+    await workspace.invoke({
+      command: "open-link",
+      args: { url: pathToFileURL(linkedPath).href },
+    }),
+  );
+  expect(result(await workspace.cli("status")).active.path).toBe(linkedPath);
+  expect((await snapshot(workspace)).epoch).not.toBe(beforeLink.epoch);
+  expect(await readFile(linkedPath, "utf8")).toBe(linkedBytes);
 });
 
 test("a human gesture and a stale agent request cannot overwrite each other", async ({
@@ -967,6 +1081,24 @@ test("a real PNG imported through the image picker survives undo, save and reope
     )
     .toBe(0);
   await workspace.screenshot("02-image-undo");
+  const nativeAfterUndo = path.join(
+    workspace.root,
+    "drawing-after-image-undo.excalidraw",
+  );
+  result(
+    await workspace.cli("render", {
+      ...(await target(workspace)),
+      format: "excalidraw",
+      output: nativeAfterUndo,
+    }),
+  );
+  const serializedUndo = JSON.parse(await readFile(nativeAfterUndo, "utf8"));
+  expect(
+    serializedUndo.elements.every(
+      (element: any) => !element.isDeleted && element.type !== "image",
+    ),
+  ).toBe(true);
+  expect(serializedUndo.files).toEqual({});
   for (let step = 0; step < undoSteps; step++)
     await workspace.page.keyboard.press(`${modifier}+Shift+z`);
   await expect
@@ -2203,6 +2335,55 @@ test("Settings clears only agent previews while preserving source drawings and r
     result(await workspace.invoke({ command: "recovery-list" })).recovery,
   ).toHaveLength(1);
   await workspace.screenshot("03-preview-cleanup-complete");
+  // Only the native application chooser is replaced. Main must read the real
+  // bundled licenses (inside ASAR for packaged runs) and publish physical bytes.
+  await workspace.application.evaluate(({ shell }) => {
+    const state = { original: shell.openPath, paths: [] as string[] };
+    (globalThis as any).__e2eLicenseOpener = state;
+    shell.openPath = async (filePath) => {
+      state.paths.push(filePath);
+      return "";
+    };
+  });
+  let licensePaths: string[] = [];
+  try {
+    await workspace.page
+      .getByRole("button", { name: "Third-party notices", exact: true })
+      .click();
+    await expect
+      .poll(() =>
+        workspace.application.evaluate(
+          () => (globalThis as any).__e2eLicenseOpener.paths.length,
+        ),
+      )
+      .toBe(1);
+  } finally {
+    licensePaths = await workspace.application.evaluate(({ shell }) => {
+      const state = (globalThis as any).__e2eLicenseOpener;
+      shell.openPath = state.original;
+      delete (globalThis as any).__e2eLicenseOpener;
+      return state.paths;
+    });
+  }
+  const licensePath = path.join(
+    workspace.dataDirectory,
+    "third-party-licenses.txt",
+  );
+  expect(licensePaths).toEqual([licensePath]);
+  expect(licensePath).not.toMatch(/\.asar(?:[\\/]|$)/);
+  expect((await lstat(licensePath)).isFile()).toBe(true);
+  const notices = await readFile(licensePath, "utf8");
+  expect(notices).toBe(
+    await readFile(
+      path.join(repository, "dist", "THIRD_PARTY_LICENSES.txt"),
+      "utf8",
+    ),
+  );
+  expect(notices).toContain("Permission is hereby granted, free of charge");
+  expect(notices).toContain("@excalidraw/excalidraw@");
+  expect(notices).toContain("Apache License");
+  expect(await readFile(drawing.path, "utf8")).toBe(original);
+  await workspace.screenshot("04-third-party-notices-published");
 });
 
 test("integration setup and Disconnect operate only on the isolated owned paths", async ({
@@ -2241,6 +2422,22 @@ test("integration setup and Disconnect operate only on the isolated owned paths"
     .getByRole("button", { name: "Install local launcher", exact: true })
     .click();
   await expect.poll(() => exists(launcher)).toBe(true);
+  const hostStatus = result(await workspace.cli("status"));
+  expect(await workspace.installedLauncher(launcher, ["--version"])).toBe(
+    hostStatus.version,
+  );
+  const launcherStatus = result(
+    JSON.parse(
+      await workspace.installedLauncher(launcher, [
+        "status",
+        "--json",
+        "--no-launch",
+      ]),
+    ),
+  );
+  expect(launcherStatus.protocol).toBe(1);
+  expect(launcherStatus.active.id).toBe(hostStatus.active.id);
+  expect(launcherStatus.active.path).toBe(drawing.path);
   await workspace.page
     .getByRole("button", {
       name: "Install skill for Codex & Claude Code",
@@ -2562,4 +2759,270 @@ test("the export sheet previews real selection and PNG scale and preserves work 
     path: output,
     contentType: "image/png",
   });
+
+  const canvas = workspace.page.locator(
+    "canvas.excalidraw__canvas.interactive",
+  );
+  await canvas.click({ button: "right", position: { x: 800, y: 500 } });
+  // This is the stock SDK portal, so verify the ancestor selector really matches
+  // the live menu rather than merely asserting that our stylesheet contains it.
+  await expect(workspace.page.getByTestId("copyAsSvg")).toHaveCount(1);
+  await expect(workspace.page.getByTestId("copyAsSvg")).toBeHidden();
+  await expect(workspace.page.getByTestId("copyAsPng")).toBeVisible();
+  await workspace.screenshot("03-safe-native-context-menu");
+  await workspace.page.keyboard.press("Escape");
+  for (const shortcut of [`${modifier}+Shift+p`, `${modifier}+/`]) {
+    await workspace.page.keyboard.press(shortcut);
+    await expect(
+      workspace.page.getByText("Copy as SVG", { exact: true }),
+    ).toBeHidden();
+    await workspace.page.keyboard.press("Escape");
+  }
+
+  // Capture only the OS clipboard write boundary; do not read or overwrite the
+  // user's real clipboard. The editor, prepared SVG and host copy route are real.
+  await workspace.application.evaluate(({ clipboard }) => {
+    const state = { original: clipboard.writeText, values: [] as string[] };
+    (globalThis as any).__e2eSvgClipboard = state;
+    clipboard.writeText = async (value) => {
+      state.values.push(value);
+    };
+  });
+  let copied: string[] = [];
+  try {
+    await openExportSheet(workspace.page);
+    await workspace.page
+      .getByLabel("Format", { exact: true })
+      .selectOption("svg");
+    const copy = workspace.page.getByRole("button", {
+      name: "Copy SVG",
+      exact: true,
+    });
+    await expect(
+      workspace.page.getByRole("img", {
+        name: "Captured drawing export preview",
+        exact: true,
+      }),
+    ).toHaveAttribute("src", /^data:image\/svg\+xml;base64,/);
+    await expect(copy).toBeEnabled();
+    const svgPreview = await workspace.page
+      .getByRole("img", {
+        name: "Captured drawing export preview",
+        exact: true,
+      })
+      .getAttribute("src");
+    const expectedSvg = Buffer.from(
+      svgPreview!.split(",")[1],
+      "base64",
+    ).toString("utf8");
+    await workspace.screenshot("04-controlled-svg-copy");
+    await copy.click();
+    await expect
+      .poll(() =>
+        workspace.application.evaluate(
+          () => (globalThis as any).__e2eSvgClipboard.values.length,
+        ),
+      )
+      .toBe(1);
+    copied = await workspace.application.evaluate(
+      () => (globalThis as any).__e2eSvgClipboard.values,
+    );
+    expect(copied).toEqual([expectedSvg]);
+    expect(copied[0]).toContain("<svg");
+    expect(copied[0]).toMatch(/data:font\/woff2;base64,/);
+    expect(copied[0]).not.toMatch(/url\(\s*["']?(?:https?:|app:|file:)/i);
+    expect(copied[0]).not.toContain("cdn.jsdelivr.net");
+    expect(copied[0]).not.toMatch(
+      /payload-type:application\/vnd\.excalidraw|payload-start|payload-end/i,
+    );
+    const extraMetadata = await workspace.page.evaluate((svgText) => {
+      const svg = new DOMParser().parseFromString(svgText, "image/svg+xml");
+      return [...svg.querySelectorAll("metadata")]
+        .filter(
+          (node) =>
+            node.getAttribute("data-agent-excalidraw-font-notices") !== "true",
+        )
+        .map((node) => node.innerHTML.trim())
+        .filter(Boolean);
+    }, copied[0]);
+    expect(extraMetadata).toEqual([]);
+    await expect(
+      workspace.page.getByRole("dialog", {
+        name: "Take your drawing with you.",
+        exact: true,
+      }),
+    ).not.toBeVisible();
+    expect(await readFile(drawing.path, "utf8")).toBe(sourceBytes);
+  } finally {
+    await workspace.application.evaluate(({ clipboard }) => {
+      clipboard.writeText = (globalThis as any).__e2eSvgClipboard.original;
+      delete (globalThis as any).__e2eSvgClipboard;
+    });
+  }
+});
+
+test("selected-frame PNG and SVG exports clip children to the frame and report actual dimensions", async ({
+  workspace,
+}, testInfo) => {
+  const common = {
+    angle: 0,
+    strokeColor: "transparent",
+    backgroundColor: "transparent",
+    fillStyle: "solid",
+    strokeWidth: 1,
+    strokeStyle: "solid",
+    roughness: 0,
+    opacity: 100,
+    groupIds: [],
+    frameId: null,
+    roundness: null,
+    seed: 1,
+    version: 1,
+    versionNonce: 1,
+    isDeleted: false,
+    boundElements: null,
+    updated: 1,
+    link: null,
+    locked: false,
+  };
+  const frameId = "export-focus-frame";
+  const fixture = {
+    type: "excalidraw",
+    version: 2,
+    source: "e2e-selected-frame",
+    elements: [
+      {
+        ...common,
+        id: frameId,
+        type: "frame",
+        x: 200,
+        y: 200,
+        width: 300,
+        height: 200,
+        name: "Focus frame",
+      },
+      {
+        ...common,
+        id: "left-partial-red",
+        type: "rectangle",
+        frameId,
+        x: 120,
+        y: 240,
+        width: 180,
+        height: 100,
+        backgroundColor: "#ff0000",
+      },
+      {
+        ...common,
+        id: "right-partial-blue",
+        type: "rectangle",
+        frameId,
+        x: 450,
+        y: 240,
+        width: 150,
+        height: 100,
+        backgroundColor: "#0000ff",
+      },
+      {
+        ...common,
+        id: "fully-outside-green",
+        type: "rectangle",
+        frameId,
+        x: 700,
+        y: 240,
+        width: 120,
+        height: 100,
+        backgroundColor: "#00ff00",
+      },
+    ],
+    appState: { viewBackgroundColor: "#ffffff" },
+    files: {},
+  };
+  const file = path.join(
+    workspace.drawingsDirectory,
+    "Frame clipping fixture.excalidraw",
+  );
+  const fixtureBytes = JSON.stringify(fixture);
+  await writeFile(file, fixtureBytes);
+  result(await workspace.cli("open", { path: file }));
+  const loaded = await snapshot(workspace);
+  expect(
+    loaded.elements.find((element: any) => element.id === "fully-outside-green")
+      .frameId,
+  ).toBe(frameId);
+  result(
+    await workspace.cli("view", {
+      ...(await target(workspace)),
+      ids: [frameId],
+      focus: true,
+    }),
+  );
+  expect((await snapshot(workspace)).selection).toEqual([frameId]);
+  await workspace.screenshot("01-frame-only-selection");
+  for (const format of ["png", "svg"] as const) {
+    const scale = format === "png" ? 2 : 1;
+    const preview = result(
+      await workspace.invoke({
+        command: "export-preview",
+        args: { format, selection: true, scale, background: true },
+      }),
+    );
+    const pixels = await workspace.page.evaluate(async (dataURL) => {
+      const image = new Image();
+      image.src = dataURL;
+      await image.decode();
+      const canvas = document.createElement("canvas");
+      canvas.width = image.naturalWidth;
+      canvas.height = image.naturalHeight;
+      const context = canvas.getContext("2d")!;
+      context.drawImage(image, 0, 0);
+      const data = context.getImageData(0, 0, canvas.width, canvas.height).data;
+      let red = 0,
+        blue = 0,
+        green = 0;
+      for (let offset = 0; offset < data.length; offset += 4) {
+        const [r, g, b, alpha] = data.subarray(offset, offset + 4);
+        if (alpha > 240 && r > 240 && g < 15 && b < 15) red++;
+        if (alpha > 240 && b > 240 && r < 15 && g < 15) blue++;
+        if (alpha > 240 && g > 240 && r < 15 && b < 15) green++;
+      }
+      return { width: canvas.width, height: canvas.height, red, blue, green };
+    }, preview.dataURL);
+    expect(pixels.width).toBe(300 * scale);
+    expect(pixels.height).toBe(200 * scale);
+    expect(pixels.width).toBe(preview.width);
+    expect(pixels.height).toBe(preview.height);
+    expect(pixels.red).toBeGreaterThan(0);
+    expect(pixels.blue).toBeGreaterThan(0);
+    expect(pixels.green).toBe(0);
+    const output = path.join(workspace.root, `selected-frame.${format}`);
+    const rendered = result(
+      await workspace.cli("render", {
+        ...(await target(workspace)),
+        selection: true,
+        format,
+        scale,
+        output,
+      }),
+    );
+    expect(rendered.bounds).toEqual([200, 200, 500, 400]);
+    expect(rendered.width).toBe(pixels.width);
+    expect(rendered.height).toBe(pixels.height);
+    expect(rendered.scale).toBe(scale);
+    expect(rendered.transform).toEqual({ sceneOrigin: [200, 200], scale });
+    if (format === "png")
+      expect(await readFile(output)).toEqual(
+        Buffer.from(preview.dataURL.split(",")[1], "base64"),
+      );
+    if (format === "png")
+      expect(pngDimensions(await readFile(output))).toEqual({
+        width: pixels.width,
+        height: pixels.height,
+      });
+    await testInfo.attach(`frame-clipped-${format}`, {
+      path: output,
+      contentType: format === "png" ? "image/png" : "image/svg+xml",
+    });
+  }
+  expect(await readFile(file, "utf8")).toBe(fixtureBytes);
 });
