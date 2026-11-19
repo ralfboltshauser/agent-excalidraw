@@ -1,0 +1,177 @@
+name: Native verification
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: native-verify-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+# Configuring this matrix is not a passed platform gate. Each lane must actually
+# complete, and its evidence must be reviewed. These jobs never publish releases
+# or claim a signed/notarized installer was tested.
+jobs:
+  native:
+    name: ${{ matrix.platform }} / ${{ matrix.arch }}
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: macos-15
+            platform: darwin
+            arch: arm64
+          - runner: macos-15-intel
+            platform: darwin
+            arch: x64
+          - runner: windows-2025
+            platform: win32
+            arch: x64
+          - runner: ubuntu-24.04
+            platform: linux
+            arch: x64
+    env:
+      # CI packages are intentionally unsigned; release signing is a separate gate.
+      CSC_IDENTITY_AUTO_DISCOVERY: 'false'
+      EXPECTED_PLATFORM: ${{ matrix.platform }}
+      EXPECTED_ARCH: ${{ matrix.arch }}
+    steps:
+      - name: Check out exact source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Set up Node.js
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: '22'
+          cache: npm
+      - name: Record native host and dependency versions
+        shell: bash
+        run: |
+          node <<'NODE'
+          const fs = require('node:fs');
+          const os = require('node:os');
+          const pkg = require('./package.json');
+          const actual = { platform: process.platform, arch: process.arch };
+          if (actual.platform !== process.env.EXPECTED_PLATFORM || actual.arch !== process.env.EXPECTED_ARCH) {
+            throw new Error(`Runner mismatch: ${JSON.stringify(actual)}; expected ${process.env.EXPECTED_PLATFORM}/${process.env.EXPECTED_ARCH}`);
+          }
+          fs.mkdirSync('artifacts', { recursive: true });
+          fs.writeFileSync('artifacts/build-metadata.json', JSON.stringify({
+            sha: process.env.GITHUB_SHA, runId: process.env.GITHUB_RUN_ID,
+            runAttempt: process.env.GITHUB_RUN_ATTEMPT, ...actual,
+            os: { type: os.type(), release: os.release(), version: os.version() },
+            node: process.version, app: pkg.version,
+            electron: pkg.devDependencies.electron,
+            excalidraw: pkg.dependencies['@excalidraw/excalidraw'],
+            signing: 'Unsigned CI package; no public installer/signing claim',
+          }, null, 2));
+          NODE
+      - name: Install locked dependencies
+        run: npm ci
+      - name: Install Linux desktop runtime dependencies
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y xvfb libnss3 libatk-bridge2.0-0 libgtk-3-0t64 libasound2t64 libgbm1
+      - name: Typecheck
+        run: npm run typecheck
+      - name: Test real file and command modules
+        run: npm test
+      - name: Build production editor, host and CLI
+        run: npm run build
+      - name: Run native Electron end-to-end journeys (Linux)
+        if: runner.os == 'Linux'
+        run: xvfb-run -a npx playwright test
+      - name: Run native Electron end-to-end journeys (macOS / Windows)
+        if: runner.os != 'Linux'
+        run: npx playwright test
+      - name: Package native application directory
+        run: npx electron-builder --dir --publish never
+      - name: Locate packaged native executable
+        shell: bash
+        run: |
+          node <<'NODE'
+          const fs = require('node:fs');
+          const path = require('node:path');
+          const candidates = process.platform === 'darwin'
+            ? [path.join('release', process.arch === 'arm64' ? 'mac-arm64' : 'mac', 'Agent Excalidraw.app', 'Contents', 'MacOS', 'Agent Excalidraw')]
+            : process.platform === 'win32'
+              ? [path.join('release', 'win-unpacked', 'Agent Excalidraw.exe')]
+              : [path.join('release', 'linux-unpacked', 'agent-excalidraw')];
+          const executable = candidates.find(file => fs.existsSync(file));
+          if (!executable) throw new Error(`Packaged executable was not found: ${candidates.join(', ')}`);
+          fs.appendFileSync(process.env.GITHUB_ENV, `AGENT_EXCALIDRAW_EXECUTABLE=${path.resolve(executable)}\n`);
+          NODE
+      - name: Verify packaged Electron journeys (Linux)
+        if: runner.os == 'Linux'
+        env:
+          PLAYWRIGHT_HTML_REPORT: artifacts/packaged-e2e-report
+        run: xvfb-run -a npx playwright test --output artifacts/packaged-e2e
+      - name: Verify packaged Electron journeys (macOS / Windows)
+        if: runner.os != 'Linux'
+        env:
+          PLAYWRIGHT_HTML_REPORT: artifacts/packaged-e2e-report
+        run: npx playwright test --output artifacts/packaged-e2e
+      - name: Collect synthetic drawing and render fixtures
+        if: always()
+        shell: bash
+        run: |
+          node <<'NODE'
+          const fs = require('node:fs/promises');
+          const path = require('node:path');
+          async function files(root) {
+            let entries;
+            try { entries = await fs.readdir(root, { withFileTypes: true }); }
+            catch (error) { if (error.code === 'ENOENT') return []; throw error; }
+            const all = [];
+            for (const entry of entries) {
+              const name = path.join(root, entry.name);
+              if (entry.isDirectory()) all.push(...await files(name));
+              else if (entry.isFile()) all.push(name);
+            }
+            return all;
+          }
+          (async () => {
+            const attachments = (await files('artifacts')).filter(file => /^test-home.*\.txt$/.test(path.basename(file)));
+            const seen = new Set();
+            for (const attachment of attachments) {
+              const root = (await fs.readFile(attachment, 'utf8')).trim();
+              // Only synthetic homes created by this test suite may be copied.
+              if (!path.isAbsolute(root) || !/^ae-e2e-[A-Za-z0-9]+$/.test(path.basename(root)) || seen.has(root)) continue;
+              seen.add(root);
+              for (const input of await files(root)) {
+                if (!/\.(excalidraw|png|svg)$/i.test(input)) continue;
+                const output = path.join('artifacts/fixtures', path.basename(root), path.relative(root, input));
+                await fs.mkdir(path.dirname(output), { recursive: true });
+                await fs.copyFile(input, output);
+              }
+            }
+            // Deliberately exclude endpoint.json, runtime tokens and agent input JSON.
+          })().catch(error => { console.error(error); process.exitCode = 1; });
+          NODE
+      - name: Upload native verification evidence
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: evidence-${{ matrix.platform }}-${{ matrix.arch }}-${{ github.sha }}
+          path: artifacts/
+          if-no-files-found: warn
+          retention-days: 14
+      - name: Upload unsigned native package for review
+        if: success()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: unsigned-package-${{ matrix.platform }}-${{ matrix.arch }}-${{ github.sha }}
+          path: |
+            release/mac*/
+            release/win-unpacked/
+            release/linux-unpacked/
+            release/builder-effective-config.yaml
+          if-no-files-found: error
+          retention-days: 7

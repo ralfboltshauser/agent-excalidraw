@@ -1,0 +1,109 @@
+{
+  "name": "agent-excalidraw",
+  "version": "0.1.0",
+  "description": "A local Excalidraw workspace for people and agents",
+  "type": "module",
+  "license": "MIT",
+  "author": "Ralf Boltshauser",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/ralfboltshauser/agent-excalidraw.git"
+  },
+  "bin": {
+    "agent-excalidraw": "dist/cli/index.js"
+  },
+  "main": "dist/main/index.js",
+  "files": [
+    "dist",
+    "skills",
+    "README.md",
+    "LICENSE"
+  ],
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "build": "node scripts/build.mjs",
+    "dev": "npm run build && electron .",
+    "start": "electron .",
+    "typecheck": "tsc --noEmit",
+    "test": "tsx --test tests/*.test.ts",
+    "package": "npm run build && electron-builder --dir",
+    "dist": "npm run build && electron-builder",
+    "test:e2e": "playwright test"
+  },
+  "dependencies": {
+    "@excalidraw/excalidraw": "0.18.1",
+    "@modelcontextprotocol/sdk": "1.32.2",
+    "commander": "14.0.3",
+    "lucide-react": "0.577.0",
+    "react": "19.2.4",
+    "react-dom": "19.2.4",
+    "zod": "4.6.7"
+  },
+  "devDependencies": {
+    "@playwright/test": "1.58.2",
+    "@types/node": "25.3.5",
+    "@types/react": "19.2.14",
+    "@types/react-dom": "19.2.3",
+    "electron": "45.4.1",
+    "electron-builder": "26.18.0",
+    "esbuild": "0.27.3",
+    "tsx": "4.21.0",
+    "typescript": "5.9.3",
+    "vite": "8.3.8"
+  },
+  "build": {
+    "appId": "com.agentexcalidraw.desktop",
+    "productName": "Agent Excalidraw",
+    "directories": {
+      "output": "release"
+    },
+    "files": [
+      "dist/**/*",
+      "package.json",
+      "assets/icon.png"
+    ],
+    "asar": true,
+    "fileAssociations": [
+      {
+        "ext": "excalidraw",
+        "name": "Excalidraw drawing",
+        "role": "Editor"
+      }
+    ],
+    "mac": {
+      "category": "public.app-category.graphics-design",
+      "target": [
+        "dmg",
+        "zip"
+      ]
+    },
+    "win": {
+      "target": "nsis"
+    },
+    "nsis": {
+      "oneClick": false,
+      "perMachine": false,
+      "allowToChangeInstallationDirectory": true
+    },
+    "linux": {
+      "target": [
+        "deb",
+        "AppImage"
+      ],
+      "category": "Graphics",
+      "maintainer": "Agent Excalidraw contributors"
+    },
+    "icon": "assets/icon.png"
+  },
+  "overrides": {
+    "lodash-es": "4.18.1",
+    "@excalidraw/excalidraw": {
+      "nanoid": "3.3.20"
+    },
+    "@excalidraw/mermaid-to-excalidraw": {
+      "nanoid": "5.1.16"
+    }
+  }
+}
