@@ -29,3 +29,7 @@ Useful Apple references: [notarization workflow](https://developer.apple.com/doc
 ## Download-trust assessment
 
 The signed synthetic-content desktop package at source commit `ca19157` passed deep/strict signature verification. An actual `spctl --assess --type execute` check rejected it with `source=Unnotarized Developer ID`. This confirms that local signing is working and that it is not yet a trusted downloaded-app release. No Gatekeeper bypass is part of the installer.
+
+The final application source `0d16d07`, ASAR SHA-256 `b1123fe97a46c86a981bf6900b8ece9c6545ac717a6f4d38eea485844d94dbc0`, was signed for both Apple Silicon and Intel. Each original app, ZIP-extracted app and read-only DMG-mounted app passed deep/strict signature verification with the expected TeamIdentifier. The actual installed final Apple Silicon app was assessed again and rejected as `Unnotarized Developer ID`.
+
+Both architectures' DMG/ZIP assets, the dependency-bundled CLI archive and SHA256SUMS are staged in the owner-only GitHub draft. Every uploaded asset name, byte count and GitHub SHA-256 digest matches the local final artifact. A temporary verification manifest matches the canonical ZIP names and hashes; it is deliberately not published as a usable installer manifest. The release stays draft while notarization and the remaining clean-download/install checks are open.

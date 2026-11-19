@@ -22,7 +22,7 @@ The keyboard failure was traced to the pinned SDK: changing `handleKeyboardGloba
 
 The first clean CI install failed because the npm-generated lock omitted optional WASM peer entries required by npm10 on runners. Regenerate the lock in an empty directory and verify a clean npm10 install, rather than using the existing node_modules as proof.
 
-Node CLI dependencies are bundled into one executable script. Standalone CLI/MCP initialization, all20 tools, authenticated calls and version-matched guide passed in an isolated directory without node_modules. Build dependencies are development-only; the native package and npm consumer need no redundant drawing-engine node_modules tree.
+Node CLI dependencies are bundled into one executable script. Standalone CLI/MCP initialization, all 20 tools, authenticated calls and version-matched guide passed in an isolated directory without node_modules. Build dependencies are development-only; the native package and npm consumer need no redundant drawing-engine node_modules tree.
 
 ### Further integration findings
 
@@ -42,7 +42,7 @@ A clean build (143 bundled library notices), full typecheck and all nine real El
 
 Actual282MB macOS arm64 package passed the same nine real journeys. ASAR inspection confirmed zero node_modules entries, the verified OFL fallback hash, and retained dependency/font notices. The npm CLI tarball is679KB compressed and installs as one dependency-free package (~3.7MB). An independent consumer completed the full diagram loop using only installed public commands/guide; isolated skill-root setup was undiscoverable and will be corrected before M5 acceptance.
 
-The all-OS run now reaches native tests after the lock correction. Windows passed7/9; fixture short-path canonicalization and hard-crash process-tree cleanup need native recheck. Ubuntu's official Electron sandbox helper requires its standard root owner and4755 mode. Configure that helper in ephemeral CI and retain sandboxing, rather than passing --no-sandbox. Native installer/public trust checks remain open.
+The all-OS run now reaches native tests after the lock correction. Windows passed 7/9; fixture short-path canonicalization and hard-crash process-tree cleanup need native recheck. Ubuntu's official Electron sandbox helper requires its standard root owner and 4755 mode. Configure that helper in ephemeral CI and retain sandboxing, rather than passing --no-sandbox. Native installer/public trust checks remain open.
 
 ## Release scope update
 
@@ -52,7 +52,7 @@ Ralf explicitly chose macOS for the first release because Windows publisher sign
 
 Added renderer-synchronous background/shape batches with exact readback, native close/unload/quit, read-only copies, private paginated agent library queries,10k-row windowing, recovery metadata, safe shared-source skill ownership across homes, full quick-switch keyboard navigation, Locate, folder new/refresh/removal, actual Trash state reset, owned integration disconnect, and explicit preview cleanup. Exports now use a real captured preview, PNG resolution controls and exact preview-token bytes; later agent changes do not alter an approved export.
 
-Source verification reached50 module cases and23 real Electron cases. Screenshot review corrected unrelated missing-reference actions, recovery grammar and unopened dates. The installed-theme bootstrap avoids a white first-paint flash. Public docs and synthetic screenshots were reviewed; source formatting was normalized for maintainability. Dependency updates remove all reported advisories in the current lock, and a clean temporary-directory lock generation preserves optional WASM peers needed by clean CI.
+Source verification reached 50 module cases and 23 real Electron cases. Screenshot review corrected unrelated missing-reference actions, recovery grammar and unopened dates. The installed-theme bootstrap avoids a white first-paint flash. Public docs and synthetic screenshots were reviewed; source formatting was normalized for maintainability. Dependency updates remove all reported advisories in the current lock, and a clean temporary-directory lock generation preserves optional WASM peers needed by clean CI.
 
 Signing is available. A synthetic signed Xcode archive export was actually attempted using the existing account; it failed account login. No profile or private key was found in the standard local configuration checked. Notarization remains an explicit external authentication gate; the local signed package, offline audit, performance run, final consumer trials and public release acceptance are separate evidence.
 
@@ -62,4 +62,14 @@ An actual offline artifact audit found that the pinned SDK's fallback SVG font r
 
 Added selected-frame PNG/SVG clipping and exact bounds/scale metadata, explicit web/local drawing links with guarded switching, and native JSON render cleanup of deleted resources. Fixed the packaged license viewer to publish a physical text copy before opening it through the OS. Actual installed launchers execute from ASAR with no external Node on PATH. Linux test cleanup now waits for inherited-pipe closure and kills only the owned detached process group; two process regressions reproduce the main-exited/descendant-open case.
 
-Typecheck and52 module cases pass. The complete24-case suite passes against source and the signed macOS arm64 package (ASAR SHA-256 `9a4265076549183af064b7a589b12169de64facc91d5b9c7d13c5b56096c2efa`). Screenshots and actual clipped output were reviewed. The separate five-task consumer produced readable diagrams and preserved fixture identities/bindings; reviewed synthetic examples are included in the repository. Final offline/performance runs and native host installation remain separately recorded gates.
+Typecheck and 52 module cases pass. The complete24-case suite passes against source and the signed macOS arm64 package (ASAR SHA-256 `9a4265076549183af064b7a589b12169de64facc91d5b9c7d13c5b56096c2efa`). Screenshots and actual clipped output were reviewed. The separate five-task consumer produced readable diagrams and preserved fixture identities/bindings; reviewed synthetic examples are included in the repository. Final offline/performance runs and native host installation remain separately recorded gates.
+
+## Installed Mac and background lifecycle increment
+
+Installed the signed local app and bundled launcher in the real user account. Native manual drawing, Save, rename, Undo/Redo, Finder reveal/open and physical license notices worked. The canonical skill resolves through three host symlinks; Codex's actual discovery returned one enabled user skill. A real installed MCP client edited, rendered and saved the manually created drawing while preserving its original IDs and text. [Installed verification](verification/installed-mac.md) distinguishes these local checks from a trusted downloaded install.
+
+The versioned installer parser and release asset naming were corrected after actual consumer/release checks. Canonical architecture-specific names prevent GitHub's filename normalization from breaking manifests. All 58 module tests passed. All four native CI source/package lanes passed at `ae5c4a1`; the subsequent background fix at `0d16d07` also passed all four native source/package CI lanes.
+
+An installed-preview update attempt exposed a partial document-unload state while the app was backgrounded. The saved synthetic drawing remained intact. The controller previously awaited animation frames after loading/unloading and changing the viewport; those waits could depend on display scheduling. Synchronous React commits now establish the SDK's state/history baseline without waiting for a frame. All 25 source journeys pass, including bounded hidden-window viewport and clean-quit checks, unchanged revisions and saved bytes, and existing one-step Undo/Redo coverage. A separate native probe without renderer CDP completed view in 177 ms and quit in 255 ms. The original stall was not reproduced under automation, so these results establish the corrected scheduling contract and observed regression behavior rather than a deterministic reproduction of that exact stall.
+
+Signed release artifacts remain draft-only. Existing Apple account authentication failed the actual notarization route; the signing certificate alone cannot resolve this external trust gate. No security protections or quarantine attributes were removed. Remaining milestone criteria are recorded in the ledger rather than inferred from successful core flows.

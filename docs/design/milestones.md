@@ -2,7 +2,7 @@
 
 2026-11-19. Release scope updated by Ralf: macOS first; Windows and Linux remain future release targets. Architecture and native CI stay cross-platform. Product scope: native-feeling desktop editor, standard local files, full CLI, optional MCP, minimal shell. Detailed UX: [product-and-flows.md](product-and-flows.md). Technical baseline: [architecture](../architecture.md).
 
-These are outcome gates, not a list of components completed. No implementation milestone has passed yet. M0 becomes ready for product review when the design artifacts and prototype are available; it is not evidence that native files, installation or agent operations work.
+These are outcome gates, not a list of components completed. The application is implemented and substantial native file, editor, CLI/MCP, installation and UX evidence now exists. The [verification ledger](verification-ledger.md) records which exact builds and criteria were exercised, remaining engineering checks, and the separate public-distribution trust blocker. The historical milestone definitions below retain their acceptance requirements: implementation or a passing subset does not silently pass every criterion. User visual/product acceptance is recorded separately.
 
 ## How to verify each milestone
 
@@ -32,7 +32,7 @@ An architecture/engine failure at M1 blocks further product build-out. Visual fe
 
 **Pass:** no required account/agent setup before drawing; create/open/save destinations are clear; removing references and deleting files are distinct; the main happy paths and recovery branches have explicit destinations; each flow maps to a milestone. Capture your visual/content corrections before treating the design as settled.
 
-**Does not prove:** any Excalidraw integration, OS installation, real files or connected agent. The current interactive artifact is a design prototype, not the app.
+**Does not prove:** any Excalidraw integration, OS installation, real files or connected agent. A design prototype alone is not app evidence; current native implementation evidence is recorded separately in the ledger.
 
 ## M1 — Prove the editor boundary on the Mac release architectures
 
@@ -132,7 +132,7 @@ An architecture/engine failure at M1 blocks further product build-out. Visual fe
 
 **Design acceptance:** one visual primary action per view; no permanent in-app chat; no unreadable path/status; essential actions available without hover; all designed error states; contrast and visible focus checked; no distracting loops; reduced-motion setting respected. Validate stock canvas keyboard/screen-reader limits separately from accessible shell claims.
 
-**Agent-quality target:** at least 4 of the 5 tasks produce a readable result without binding damage, with evidence of render inspection and at most three refinement loops. This is a proposed acceptance target, not a benchmark already achieved. Readability is reviewed against a documented rubric (labels, hierarchy, spacing, crossings, clipping), not a tautological “lint passed”.
+**Agent-quality target:** at least 4 of the 5 tasks produce a readable result without binding damage, with evidence of render inspection and at most three refinement loops. The independent five-task synthetic trial is recorded in the [consumer report](../verification/design-consumer.md); its modest fixtures and rubric review are evidence for those tasks, not a general graph-layout benchmark. Readability is reviewed against a documented rubric (labels, hierarchy, spacing, crossings, clipping), not a tautological “lint passed”.
 
 **Performance fixtures/targets:** fix reference hardware and OS in M1. Small scene: 250 elements/3 images; medium: 2,000 elements/12 images with bounded total bytes; library: 10,000 metadata entries and 500 scan files. Proposed p95 targets on those machines: shell response and indexed search <100ms; warm small-document open <1s; cold usable editor <4s; small-scene render <1.5s. Measure CLI startup separately from engine execution, font warmup and network download. Record input/frame behavior and aggregate app-process memory. Reject unbounded growth over 50 open/close cycles; investigate >20% same-fixture regression from the accepted M1/M4 baseline. Shared hosted CI timings are diagnostic, not the reference-machine oracle.
 
