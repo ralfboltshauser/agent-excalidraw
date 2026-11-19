@@ -64,4 +64,13 @@ Recommended sequence:
 
 The real visual README scene at revision 2 was captured through the installed app's SVG renderer. A self-contained 244,517-byte HTML page embeds those bytes and supplies pan/zoom/fit controls. `html_preview` rendered it at 728 px with no console output and no network dependency. The page clearly labels itself as a captured snapshot. No local scene server was started; no MCP configuration or app code was changed. No end-to-end UI write/refresh bridge is claimed.
 
-Generated proof: `artifacts/research/embedded-scene.html` (ignored local artifact). Host-compatibility research is recorded separately in `embedded-host-compatibility.md` when complete.
+Generated proof: `artifacts/research/embedded-scene.html` (ignored local artifact). The completed [host-compatibility review](embedded-host-compatibility.md) records the separate client/version evidence and privacy limits.
+
+
+## Independent compatibility review update
+
+The [host review](embedded-host-compatibility.md) confirmed a stronger local target: [Claude Desktop officially documents local stdio MCP Apps](https://claude.com/docs/connectors/building/mcp-apps/getting-started#try-an-example-mcp-app-in-claude-desktop). This supports a bundled inline viewer without public hosting. Advanced Claude entry points, app-provided tools and nested embedded websites have separate remote-backed requirements; base inline UI support does not establish those features locally.
+
+The T3 bridge source does not forward resource subscriptions into the iframe, so visibility-aware app-only polling or explicit Refresh is the first evidenced update strategy. Use a fixed UI template and fetch scene content at runtime: T3 stores captured HTML with the conversation, so embedding confidential drawing contents directly in that template would create another persisted copy. Runtime reads still pass through the host and must not be described as invisible to the host/provider. The prototype uses the intentionally public/synthetic README.
+
+These findings strengthen the local MCP App recommendation, while leaving actual installed T3/Claude Desktop compatibility tests as the next implementation gate. Standalone coding-client rendering remains unverified.
