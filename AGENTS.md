@@ -2,6 +2,8 @@
 
 Before each milestone, read its acceptance script in [docs/design/milestones.md](docs/design/milestones.md), the latest [implementation log](docs/implementation-log.md), and the [verification ledger](docs/design/verification-ledger.md). Revise assumptions from observed evidence before implementing.
 
+Keep local testing in the background so Ralf retains desktop focus. Run the default local checks and use CI for foreground journeys. Open or focus an app, browser, or test window on Ralf's desktop only when he explicitly asks for it.
+
 For each usable increment:
 
 1. Build and run the actual app through the affected user journey. Exercise real files, CLI/MCP and native behavior as relevant.

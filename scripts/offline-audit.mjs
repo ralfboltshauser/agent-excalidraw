@@ -13,6 +13,9 @@ import path from "node:path";
 import os from "node:os";
 import { fileURLToPath } from "node:url";
 
+if (process.env.AGENT_EXCALIDRAW_TEST_FOREGROUND !== "1")
+  throw new Error("The offline audit opens windows. Set AGENT_EXCALIDRAW_TEST_FOREGROUND=1 on a dedicated test desktop.");
+
 const repository = path.resolve(
   path.dirname(fileURLToPath(import.meta.url)),
   "..",

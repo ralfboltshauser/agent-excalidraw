@@ -91,7 +91,7 @@ An architecture/engine failure at M1 blocks further product build-out. Visual fe
 
 **Your check:** from your agent's normal terminal, with **no MCP configuration**:
 
-1. Ask for an onboarding flow. The agent picks a path and the real canvas opens.
+1. Ask for an onboarding flow. The agent picks a path, draws, renders and saves in the background without taking focus. Ask to see the drawing and confirm `open --show` opens the actual saved canvas.
 2. Select two elements manually and ask the agent to improve that section.
 3. Edit while the agent is planning. A stale request refreshes or refuses without losing your edit.
 4. Ask for a render; the agent actually views it, refines the scene and saves.

@@ -42,6 +42,8 @@ The preview shows the exact paths before installation. One canonical skill sourc
 
 > Use agent-excalidraw to sketch my onboarding flow.
 
+Agent commands work in the background. To open a drawing on screen, use `agent-excalidraw open --path /absolute/path/to/drawing.excalidraw --show`. Use `agent-excalidraw launch` to bring the workspace forward.
+
 If the command is not on PATH, use `~/.local/bin/agent-excalidraw` on macOS/Linux. From the source checkout, `node dist/cli/index.js` also works after building. Run `agent-excalidraw doctor --json` for install and host diagnostics.
 
 For a fully isolated skill trial:

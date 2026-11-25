@@ -272,6 +272,8 @@ export function shapeFor(name: string): Record<string, z.ZodTypeAny> {
       name === "open" || name === "move" || name === "save-as"
         ? z.string()
         : z.string().optional();
+  if (name === "open")
+    shape.show = z.boolean().optional().describe("Show and focus the desktop window");
   if (["render", "export"].includes(name)) {
     shape.output = z
       .string()

@@ -31,6 +31,8 @@ if (process.argv.some((arg) => ["--help", "-h"].includes(arg))) {
   );
   process.exit(0);
 }
+if (process.env.AGENT_EXCALIDRAW_TEST_FOREGROUND !== "1")
+  throw new Error("The native benchmark opens windows. Set AGENT_EXCALIDRAW_TEST_FOREGROUND=1 on a dedicated test desktop.");
 const samples = quick ? 5 : 20,
   cycles = quick ? 10 : 50;
 const runProcess = promisify(execFile);

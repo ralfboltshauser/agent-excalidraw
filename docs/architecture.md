@@ -57,7 +57,7 @@ The first release has one active editor, a library and document switching. It do
 
 Both adapters use `src/shared/commands.ts` and the same validated local protocol. The CLI does not call MCP. Schema parity is tested against a real stdio MCP session. Replies distinguish refusals from uncertain delivery so agents can inspect before retrying. Request receipts are scoped to the live runtime/document epoch, not a durable transaction log.
 
-The CLI can launch an installed desktop app on demand. GUI setup installs a local launcher using the app's bundled runtime. The npm-distributed CLI requires Node 22 or newer and bundles its dependencies. One canonical skill source is linked into selected agent-host roots; installer checks ownership and preserves unrelated configuration. MCP registration is optional and explicit.
+CLI and MCP drawing commands can start the installed app with its renderer hidden. The same editor owns the live scene when the user brings the workspace forward. Explicit CLI `launch`, `open --show`, and native app or file opening show the workspace. GUI setup installs a local launcher using the app's bundled runtime. The npm-distributed CLI requires Node 22 or newer and bundles its dependencies. One canonical skill source is linked into selected agent-host roots; installer checks ownership and preserves unrelated configuration. MCP registration is optional and explicit.
 
 ## Security and offline boundary
 

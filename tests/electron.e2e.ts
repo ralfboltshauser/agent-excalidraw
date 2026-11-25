@@ -24,6 +24,7 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 import { randomUUID } from "node:crypto";
 import { once } from "node:events";
 import type { Reply, Request } from "../src/shared/types";
+import { backgroundLaunchFlag } from "../src/shared/launch";
 import { killOwnedProcessTree } from "./helpers/owned-process";
 
 const execute = promisify(execFile);
@@ -68,8 +69,17 @@ async function crashOwnedApplication(application: ElectronApplication) {
   await killOwnedProcessTree(application.process());
 }
 
-const test = base.extend<{ workspace: Workspace }>({
-  workspace: async ({}, use, testInfo) => {
+const foregroundTests =
+  process.env.GITHUB_ACTIONS === "true" ||
+  process.env.AGENT_EXCALIDRAW_TEST_FOREGROUND === "1";
+
+const test = base.extend<{ workspace: Workspace; backgroundLaunch: boolean }>({
+  backgroundLaunch: [false, { option: true }],
+  workspace: async ({ backgroundLaunch }, use, testInfo) => {
+    testInfo.skip(
+      !backgroundLaunch && !foregroundTests,
+      "Local foreground tests require AGENT_EXCALIDRAW_TEST_FOREGROUND=1",
+    );
     // Short Unix paths avoid the macOS sockaddr_un pathname limit. All source
     // drawings and app metadata stay inside this owned temporary test home.
     const temporaryRoot = await mkdtemp(
@@ -107,7 +117,10 @@ const test = base.extend<{ workspace: Workspace }>({
         ...(packagedExecutable
           ? { executablePath: path.resolve(packagedExecutable) }
           : {}),
-        args: packagedExecutable ? [] : ["."],
+        args: [
+          ...(packagedExecutable ? [] : ["."]),
+          ...(backgroundLaunch ? [backgroundLaunchFlag] : []),
+        ],
         cwd: repository,
         env: environment,
         timeout: 60_000,
@@ -3073,6 +3086,59 @@ test("selected-frame PNG and SVG exports clip children to the frame and report a
     });
   }
   expect(await readFile(file, "utf8")).toBe(fixtureBytes);
+});
+
+test.describe("background workspace startup", () => {
+  test.use({ backgroundLaunch: true });
+
+  test("agent drawing work stays hidden", async ({ workspace }) => {
+    const windowState = () =>
+      workspace.application.evaluate(({ BrowserWindow }) => {
+        const window = BrowserWindow.getAllWindows()[0];
+        return { visible: window.isVisible(), focused: window.isFocused() };
+      });
+    const hidden = { visible: false, focused: false };
+    expect(await windowState()).toEqual(hidden);
+    const drawing = await create(workspace, "Headless synthetic drawing");
+    result(
+      await apply(workspace, [
+        {
+          op: "create",
+          ref: "step",
+          type: "rectangle",
+          x: 150,
+          y: 150,
+          width: 220,
+          height: 100,
+          label: "Created in the background",
+        },
+      ]),
+    );
+    const output = path.join(workspace.root, "background.png");
+    result(
+      await workspace.cli("render", { ...(await target(workspace)), output }),
+    );
+    expect(pngDimensions(await readFile(output)).width).toBeGreaterThan(0);
+    result(await workspace.cli("save", await target(workspace)));
+    result(await workspace.cli("open", { path: drawing.path }));
+    expect(await windowState()).toEqual(hidden);
+  });
+
+  test("explicitly showing a drawing opens the desktop window", async ({
+    workspace,
+  }) => {
+    test.skip(!foregroundTests, "Opening the window requires foreground opt-in");
+    const drawing = await create(workspace, "Headless synthetic drawing");
+    result(await workspace.cli("open", { path: drawing.path, show: true }));
+    await expect
+      .poll(() =>
+        workspace.application.evaluate(({ BrowserWindow }) =>
+          BrowserWindow.getAllWindows()[0].isVisible(),
+        ),
+      )
+      .toBe(true);
+    await workspace.screenshot("explicitly-shown-drawing");
+  });
 });
 
 test("a hidden renderer updates its viewport and selection without waiting for a display frame", async ({

@@ -7,6 +7,7 @@ import { createRequire } from "node:module";
 import { fileURLToPath } from "node:url";
 import type { Request, Reply } from "../shared/types.js";
 import { AppError } from "../shared/types.js";
+import { backgroundLaunchFlag } from "../shared/launch.js";
 
 import packageInfo from "../../package.json";
 export const VERSION = packageInfo.version;
@@ -158,7 +159,7 @@ export async function send(
     });
   });
 }
-export async function launchApp(): Promise<void> {
+export async function launchApp({ background = false } = {}): Promise<void> {
   const home = homedir();
   const candidates =
     process.platform === "darwin"
@@ -232,6 +233,7 @@ export async function launchApp(): Promise<void> {
     );
   const env = { ...process.env };
   delete env.ELECTRON_RUN_AS_NODE;
+  if (background) args.push(backgroundLaunchFlag);
   await new Promise<void>((resolveLaunch, reject) => {
     const child = spawn(executable!, args, {
       detached: true,
@@ -265,7 +267,7 @@ export async function requestApp(
     )
       throw error;
   }
-  await launchApp();
+  await launchApp({ background: true });
   const deadline = Date.now() + 20000;
   while (Date.now() < deadline) {
     try {

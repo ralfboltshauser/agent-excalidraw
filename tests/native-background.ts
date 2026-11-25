@@ -13,6 +13,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import assert from "node:assert/strict";
 import { killOwnedProcessTree } from "./helpers/owned-process";
+import { backgroundLaunchFlag } from "../src/shared/launch";
 const execute = promisify(execFile);
 const repository = path.resolve(
   path.dirname(fileURLToPath(import.meta.url)),
@@ -45,9 +46,11 @@ for (const mode of ["view", "quit"]) {
     );
   const application = spawn(
     executable,
-    process.env.AGENT_EXCALIDRAW_EXECUTABLE
-      ? ["--inspect=0"]
-      : ["--inspect=0", "."],
+    [
+      "--inspect=0",
+      ...(process.env.AGENT_EXCALIDRAW_EXECUTABLE ? [] : ["."]),
+      backgroundLaunchFlag,
+    ],
     {
       cwd: repository,
       env: environment,
@@ -119,8 +122,8 @@ for (const mode of ["view", "quit"]) {
     const target = { document: scene.document, epoch: scene.epoch };
     await cli("save", target);
     savedBytes = await readFile(drawingPath);
-    // Attach only to Node/main to hide the real BrowserWindow. Never attach
-    // renderer CDP, alter RAF, or modify SDK APIs. Disconnect before domain ops.
+    // Inspect the real BrowserWindow through Node/main without attaching
+    // renderer CDP or changing how the renderer runs.
     assert.ok(
       inspectorUrl,
       "Owned main process inspector did not publish a URL",
@@ -128,7 +131,7 @@ for (const mode of ["view", "quit"]) {
     const socket = new WebSocket(inspectorUrl);
     const visibility = await new Promise<any>((resolve, reject) => {
       const timer = setTimeout(
-        () => reject(new Error("Main inspector hide timed out")),
+        () => reject(new Error("Main inspector visibility check timed out")),
         5_000,
       );
       socket.addEventListener("error", (error) => {
@@ -141,7 +144,7 @@ for (const mode of ["view", "quit"]) {
             id: 1,
             method: "Runtime.evaluate",
             params: {
-              expression: `(async()=>{const e=process.getBuiltinModule('module').createRequire(process.execPath)('electron');const w=e.BrowserWindow.getAllWindows()[0];w.minimize();await new Promise(r=>setTimeout(r,400));w.hide();await new Promise(r=>setTimeout(r,1000));return {visible:w.isVisible(),state:await w.webContents.executeJavaScript('document.visibilityState')}})()`,
+              expression: `(async()=>{const e=process.getBuiltinModule('module').createRequire(process.execPath)('electron');const w=e.BrowserWindow.getAllWindows()[0];return {visible:w.isVisible(),focused:w.isFocused(),state:await w.webContents.executeJavaScript('document.visibilityState')}})()`,
               awaitPromise: true,
               returnByValue: true,
             },
@@ -163,6 +166,7 @@ for (const mode of ["view", "quit"]) {
     socket.close();
     await disconnected;
     assert.equal(visibility.visible, false);
+    assert.equal(visibility.focused, false);
     const started = Date.now();
     if (mode === "view") {
       const reply = await cli(

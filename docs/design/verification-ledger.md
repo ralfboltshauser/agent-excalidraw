@@ -42,6 +42,14 @@ The initial SVG audit found a CDN fallback font reference despite zero editing e
 
 ## Reproduce and record
 
+### Background drawing and local testing
+
+On macOS 26.7.3 arm64, typecheck, build and all 83 module cases passed with the hidden embedded browser case enabled. Node 26's tsx loader deprecation warning was suppressed for tests that assert empty stderr. The default E2E command passed one background journey and skipped 30 foreground journeys against source and signed ASAR `77adcab942e861989f134d7e8cb1c1076e94468c29f69e86790d5a4b733aa691`. The native main-process probe observed the window hidden and unfocused, with successful viewport and clean quit receipts and unchanged saved bytes.
+
+An independent cold source consumer created, edited, rendered, saved and reopened a synthetic drawing with stable IDs and identical saved bytes. Its native observer saw zero focus changes to the test app in 160 samples. The same cold workflow passed through the real installed bundled launcher with a separate synthetic profile. The installed app remained inactive under macOS accessory activation policy, and its PNG was inspected. Both staged and installed bundles passed strict deep signature verification. The previous bundle is retained locally. Public notarization remains open.
+
+The initial source regression showed the drawing only at the explicit request and its screenshot was inspected. The longer foreground run was stopped at Ralf's request after seven existing cases passed. The remaining local foreground journeys were left unrun. The benchmark and offline audit guards were verified to exit before launch without the local foreground opt-in.
+
 ### Embedded viewer increment (0.2.0)
 
 The [embedded verification report](../verification/embedded-canvas.md) records the new build separately from the historical 0.1 evidence above. Typecheck, 82 module cases, eight enabled viewer cases and 29 native journeys pass; all 29 also pass against signed arm64 ASAR `766ede6aeb9dc0cf2a6d497fdde2fbf3b5139d0edf19d95a045a5a405a100e7b`. That bundle is installed locally. All four native source/package CI lanes passed at `d7f46dd` and again with final image/CSP coverage at `f7edf46` in [run 44639850256](https://github.com/ralfboltshauser/agent-excalidraw/actions/runs/44639850256). Actual polling with 250 extra shapes and 20 edits measured p95 1,888 ms in the SDK reference host. The signed-package six-view 30-minute stress run passed; its [timing/memory report](../verification/embedded-stress.md) preserves workload limits and does not claim leak freedom. Real T3 E0 bridge reads and production model-side calls succeeded, while production host visual qualification and secondary host lanes remain open. Test interruption at the user's request was honored. No existing public trust gate is closed by this increment.

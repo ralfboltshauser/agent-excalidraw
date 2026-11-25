@@ -38,7 +38,7 @@ npm run test:e2e
 npm run package
 ```
 
-Run the checks relevant to your change. Native Electron tests need an actual desktop session; Linux CI uses Xvfb and the official Chromium sandbox helper. A compiled artifact is not native test evidence for another OS.
+Run the checks relevant to your change. Local `npm run test:e2e` exercises background drawing work without showing a window. CI runs the full suite, including foreground journeys. On a dedicated test desktop, use `AGENT_EXCALIDRAW_TEST_FOREGROUND=1 npm run test:e2e` to run the full suite locally. The native benchmark and offline audit also require that opt-in. Linux CI uses Xvfb and the official Chromium sandbox helper.
 
 For UI changes, open the real app and complete the affected journey. Capture and inspect screenshots for hierarchy, alignment, spacing, contrast, focus, clipping and consistency. Include empty, populated and relevant error states. Use synthetic drawings; keep local tokens and private host paths out of public attachments.
 

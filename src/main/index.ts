@@ -45,6 +45,7 @@ import {
 } from "../shared/types.js";
 import { CanvasPresentation } from "./canvas-presentation.js";
 import { presentationReadRequestSchema } from "../shared/presentation.js";
+import { backgroundLaunchFlag } from "../shared/launch.js";
 const presentationCommands = new Set([
   "presentation-open",
   "presentation-read",
@@ -84,6 +85,20 @@ if (!lock) {
   app.quit();
   process.exit(0);
 }
+let background = process.argv.includes(backgroundLaunchFlag);
+if (background && process.platform === "darwin")
+  app.setActivationPolicy("accessory");
+
+function showWorkspace() {
+  if (!window || shutdownPending) return;
+  if (background && process.platform === "darwin")
+    app.setActivationPolicy("regular");
+  background = false;
+  if (window.isMinimized()) window.restore();
+  window.show();
+  window.focus();
+}
+
 let window: BrowserWindow,
   store: FileStore,
   rendererReady = false,
@@ -550,10 +565,8 @@ async function execute(request: Request, fromAgent = false): Promise<any> {
             ),
       };
     case "new":
-      if (fromAgent) window.show();
       return switchDrawing(() => store.create(args), fromAgent);
     case "open": {
-      if (fromAgent) window.show();
       const file =
         args.path ||
         (
@@ -566,7 +579,9 @@ async function execute(request: Request, fromAgent = false): Promise<any> {
         ).filePaths[0];
       if (!file) throw new AppError("CANCELLED", "No drawing selected.");
       try {
-        return await switchDrawing(() => store.open(file), fromAgent);
+        const opened = await switchDrawing(() => store.open(file), fromAgent);
+        if (args.show === true) showWorkspace();
+        return opened;
       } catch (error: any) {
         if (error.code === "ENOENT")
           throw new AppError(
@@ -1259,6 +1274,7 @@ app
           : "light"
         : store.settings.theme;
     window = new BrowserWindow({
+      show: !background,
       width: 1280,
       height: 860,
       minWidth: 760,
@@ -1522,22 +1538,23 @@ app
     app.quit();
   });
 app.on("second-instance", (_event, argv) => {
+  if (argv.includes(backgroundLaunchFlag)) return;
   void initializationPromise.then(() => {
     if (shutdownPending) return;
-    window.show();
-    window.focus();
+    showWorkspace();
     const file = argv.find((v) => v.endsWith(".excalidraw"));
     if (file) void run({ command: "open", args: { path: path.resolve(file) } });
   });
 });
 app.on("open-file", (event, file) => {
   event.preventDefault();
-  void initializationPromise.then(() =>
-    run({ command: "open", args: { path: file } }),
-  );
+  void initializationPromise.then(() => {
+    showWorkspace();
+    return run({ command: "open", args: { path: file } });
+  });
 });
 app.on("activate", () => {
-  if (!shutdownPending) window?.show();
+  showWorkspace();
 });
 
 app.on("before-quit", (event) => {

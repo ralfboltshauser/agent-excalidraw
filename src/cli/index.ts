@@ -85,7 +85,7 @@ function decorate(command: Command, name: string) {
           "Create a transparent export without the canvas background",
         )
         .setOptionValue("background", undefined);
-    else if (["compact", "embedScene", "selection", "focus"].includes(key))
+    else if (["compact", "embedScene", "selection", "focus", "show"].includes(key))
       command.option(`--${flag}`, shape[key].description || key);
     else if (["ids"].includes(key))
       command.option(`--${flag} <ids>`, "Comma-separated stable IDs", (v) =>

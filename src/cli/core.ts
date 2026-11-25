@@ -1,6 +1,6 @@
 export const coreInstructions = `# Agent Excalidraw — installed command guide
 
-Use the CLI directly; MCP registration is optional. The desktop app opens on the first drawing command. Run agent-excalidraw doctor if launch fails. Installation and explicit updates need internet; drawing works offline.
+Use the CLI directly; MCP registration is optional. Drawing commands start the local editor in the background when needed. Keep it in the background unless the user asks to see the desktop app or drawing. Run agent-excalidraw doctor if launch fails. Installation and explicit updates need internet; drawing works offline.
 
 ## Skill discovery and safe installation
 
@@ -13,7 +13,7 @@ agent-excalidraw skills install --home /tmp/excalidraw-trial --data-dir /tmp/exc
 
 ## Choose the file
 
-Honor an explicit path. The displayed drawing name follows its filename; --title suggests a filename only when --path is omitted. For an existing drawing, use list --query <name or path> --json and open --path <absolute path>; compare full paths before choosing among equal names. Library results are paginated: follow nextOffset until null when you need all matches. status returns a count, not every private filename. For a new idea use new --title <purpose> --project-dir <current project> --json. This chooses a collision-free file under the configured drawing root, outside the repository by default. A request merely to launch the workspace uses launch, not new. Leave the app open after drawing unless asked to close it. The quit command closes only after saved work; unsaved agent shutdown is refused.
+Honor an explicit path. The displayed drawing name follows its filename; --title suggests a filename only when --path is omitted. For an existing drawing, use list --query <name or path> --json and open --path <absolute path>; compare full paths before choosing among equal names. Library results are paginated: follow nextOffset until null when you need all matches. status returns a count, not every private filename. For a new idea use new --title <purpose> --project-dir <current project> --json. This chooses a collision-free file under the configured drawing root, outside the repository by default. When the user explicitly asks to open a drawing on screen, use open --path <absolute path> --show. To bring the current workspace forward, use launch. The quit command closes only after saved work; unsaved agent shutdown is refused.
 
 ## Edit the live document
 
